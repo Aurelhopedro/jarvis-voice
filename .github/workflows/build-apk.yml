@@ -5,7 +5,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'index.html'
+      - 'app/**'
+      - '.github/workflows/build-apk.yml'
 
 jobs:
   build:
@@ -28,7 +29,7 @@ jobs:
       - name: 📦 Instalar ferramentas de build
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aapt zipalign apksigner
+          sudo apt-get install -y -qq zipalign apksigner imagemagick
 
       - name: 🔑 Criar keystore para assinar o APK
         run: |
@@ -43,18 +44,9 @@ jobs:
             -dname "CN=Jarvis, OU=Voice, O=Aurelhopedro, L=PT, S=PT, C=PT" \
             -noprompt
 
-      - name: 🌐 Injectar secrets no index.html
-        env:
-          GITHUB_REPO:  ${{ secrets.JARVIS_GITHUB_REPO }}
-          GITHUB_TOKEN_VAL: ${{ secrets.JARVIS_GITHUB_TOKEN }}
-        run: |
-          sed -i "s|%%GITHUB_REPO%%|${GITHUB_REPO}|g"   index.html
-          sed -i "s|%%GITHUB_TOKEN%%|${GITHUB_TOKEN_VAL}|g" index.html
-          echo "✅ Secrets injectados no index.html"
-
       - name: 🏗️ Criar estrutura do projeto Android
         run: |
-          mkdir -p app/src/main/{java/com/aurelhopedro/jarvis,res/{layout,values,mipmap-hdpi,mipmap-mdpi,mipmap-xhdpi,mipmap-xxhdpi,mipmap-xxxhdpi,drawable,xml}}
+          mkdir -p app/src/main/{java/com/aurelhopedro/jarvis,res/{layout,values,mipmap-hdpi,mipmap-mdpi,mipmap-xhdpi,mipmap-xxhdpi,mipmap-xxxhdpi},assets}
 
           # ── AndroidManifest.xml ──────────────────────────
           cat > app/src/main/AndroidManifest.xml << 'XML'
@@ -91,7 +83,7 @@ jobs:
 </manifest>
 XML
 
-          # ── MainActivity.java ────────────────────────────
+          # ── MainActivity.java — aponta para GitHub Pages ──
           cat > app/src/main/java/com/aurelhopedro/jarvis/MainActivity.java << 'JAVA'
 package com.aurelhopedro.jarvis;
 
@@ -110,6 +102,9 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private static final int MIC_PERMISSION = 1001;
+
+    // ✅ URL do GitHub Pages — nunca muda, não precisa recompilar
+    private static final String JARVIS_URL = "https://aurelhopedro.github.io/jarvis-voice/";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -149,10 +144,10 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setUserAgentString("JarvisApp/1.0 Android");
 
-        // Chrome Client para permissão de microfone
+        // Chrome Client — aprova microfone automaticamente
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
@@ -167,7 +162,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Pedir permissão de microfone
+        // Pedir permissão de microfone ao Android
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
@@ -178,13 +173,13 @@ public class MainActivity extends Activity {
     }
 
     private void carregarJarvis() {
-        webView.loadUrl("file:///android_asset/index.html");
+        webView.loadUrl(JARVIS_URL);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         if (requestCode == MIC_PERMISSION) {
-            carregarJarvis(); // Carrega independentemente da decisão
+            carregarJarvis();
         }
     }
 
@@ -195,38 +190,15 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        webView.onPause();
-    }
+    protected void onPause() { super.onPause(); webView.onPause(); }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        webView.onResume();
-    }
+    protected void onResume() { super.onResume(); webView.onResume(); }
 
     @Override
-    protected void onDestroy() {
-        webView.destroy();
-        super.onDestroy();
-    }
+    protected void onDestroy() { webView.destroy(); super.onDestroy(); }
 }
 JAVA
-
-          # ── res/layout/activity_main.xml ─────────────────
-          cat > app/src/main/res/layout/activity_main.xml << 'XML'
-<?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#0a0f1e">
-    <WebView
-        android:id="@+id/webview"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-</FrameLayout>
-XML
 
           # ── res/values/styles.xml ─────────────────────────
           cat > app/src/main/res/values/styles.xml << 'XML'
@@ -248,58 +220,35 @@ XML
 </resources>
 XML
 
-          # ── Ícone simples SVG → PNG ───────────────────────
-          sudo apt-get install -y -qq imagemagick 2>/dev/null || true
-          for size in 48 72 96 144 192; do
+          # ── Ícone ─────────────────────────────────────────
+          for dir in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            size=48
+            case $dir in hdpi) size=72;; xhdpi) size=96;; xxhdpi) size=144;; xxxhdpi) size=192;; esac
             convert -size ${size}x${size} \
               radial-gradient:'#1a3a6b'-'#0a0f1e' \
               -fill '#3b82f6' -pointsize $((size/3)) \
               -gravity center -annotate 0 'J' \
-              app/src/main/res/mipmap-$(
-                case $size in
-                  48) echo mdpi;; 72) echo hdpi;; 96) echo xhdpi;;
-                  144) echo xxhdpi;; 192) echo xxxhdpi;;
-                esac
-              )/ic_launcher.png 2>/dev/null || \
-            cp /dev/null app/src/main/res/mipmap-$(
-              case $size in
-                48) echo mdpi;; 72) echo hdpi;; 96) echo xhdpi;;
-                144) echo xxhdpi;; 192) echo xxxhdpi;;
-              esac
-            )/ic_launcher.png
+              app/src/main/res/mipmap-${dir}/ic_launcher.png 2>/dev/null || \
+            touch app/src/main/res/mipmap-${dir}/ic_launcher.png
           done
 
-          # ── Copiar index.html para assets ─────────────────
-          mkdir -p app/src/main/assets
-          cp index.html app/src/main/assets/index.html
-          echo "✅ index.html copiado para assets"
-
-      - name: 🔧 Criar build.gradle e settings
+      - name: 🔧 Criar ficheiros Gradle
         run: |
-          # settings.gradle
           cat > settings.gradle << 'GRADLE'
 rootProject.name = "JarvisVoice"
 include ':app'
 GRADLE
 
-          # build.gradle (root)
           cat > build.gradle << 'GRADLE'
 buildscript {
     repositories { google(); mavenCentral() }
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.0'
-    }
+    dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
 }
-allprojects {
-    repositories { google(); mavenCentral() }
-}
+allprojects { repositories { google(); mavenCentral() } }
 GRADLE
 
-          # app/build.gradle
           cat > app/build.gradle << 'GRADLE'
-plugins {
-    id 'com.android.application'
-}
+plugins { id 'com.android.application' }
 android {
     namespace 'com.aurelhopedro.jarvis'
     compileSdk 34
@@ -310,22 +259,15 @@ android {
         versionCode 1
         versionName "1.0"
     }
-    buildTypes {
-        release {
-            minifyEnabled false
-        }
-    }
+    buildTypes { release { minifyEnabled false } }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 }
-dependencies {
-    implementation 'androidx.core:core:1.12.0'
-}
+dependencies { implementation 'androidx.core:core:1.12.0' }
 GRADLE
 
-          # gradle wrapper
           mkdir -p gradle/wrapper
           cat > gradle/wrapper/gradle-wrapper.properties << 'PROPS'
 distributionBase=GRADLE_USER_HOME
@@ -335,23 +277,18 @@ zipStoreBase=GRADLE_USER_HOME
 zipStorePath=wrapper/dists
 PROPS
 
-          # gradlew
           curl -sSL https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew -o gradlew
           chmod +x gradlew
 
       - name: 🔨 Compilar APK
-        run: |
-          ./gradlew assembleRelease --no-daemon --stacktrace
-          echo "✅ APK compilado"
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: ✍️ Assinar e alinhar APK
         run: |
-          # Zipalign
           zipalign -v 4 \
             app/build/outputs/apk/release/app-release-unsigned.apk \
             /tmp/jarvis-aligned.apk
 
-          # Assinar
           apksigner sign \
             --ks /tmp/jarvis.keystore \
             --ks-pass pass:jarvispass \
@@ -360,7 +297,7 @@ PROPS
             --out /tmp/Jarvis.apk \
             /tmp/jarvis-aligned.apk
 
-          echo "✅ APK assinado: Jarvis.apk"
+          echo "✅ APK assinado"
           ls -lh /tmp/Jarvis.apk
 
       - name: 📤 Publicar APK como artefacto
@@ -368,15 +305,15 @@ PROPS
         with:
           name: Jarvis-APK
           path: /tmp/Jarvis.apk
-          retention-days: 30
+          retention-days: 90
 
-      - name: 📋 Sumário final
+      - name: 📋 Sumário
         run: |
           echo "════════════════════════════════════════"
           echo "✅  BUILD CONCLUÍDO"
-          echo "════════════════════════════════════════"
           echo "📱 APK: Jarvis.apk"
-          echo "📦 Tamanho: $(du -sh /tmp/Jarvis.apk | cut -f1)"
-          echo "🔑 Secrets injectados: JARVIS_GITHUB_REPO + JARVIS_GITHUB_TOKEN"
-          echo "☁️  Túnel: Cloudflare (grátis, sem conta)"
+          echo "🌐 Abre: https://aurelhopedro.github.io/jarvis-voice/"
+          echo "🔄 Para atualizar interface: push no index.html"
+          echo "🔄 Para atualizar servidor: push no jarvis.yml"
+          echo "📱 Para novo APK: só se mudar o MainActivity.java"
           echo "════════════════════════════════════════"
