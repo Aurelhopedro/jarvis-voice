@@ -69,8 +69,10 @@
   .txt::placeholder{color:var(--muted)}
   .mic{width:42px;height:42px;border-radius:50%;border:none;background:var(--accent);color:#fff;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s,transform .1s}
   .mic:active{transform:scale(.92)}
+  .mic.recording{background:#ef4444;animation:blink 1s infinite}
   .mic.muted{background:var(--muted)}
-  .setup{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 22px;gap:18px;z-index:100}
+  /* Setup screen */
+  .setup{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 22px;gap:16px;z-index:100;overflow-y:auto}
   .setup.gone{display:none}
   .s-title{font-family:'JetBrains Mono',monospace;font-size:24px;color:var(--accent);letter-spacing:.1em}
   .s-sub{font-size:13px;color:var(--muted);text-align:center;max-width:300px;line-height:1.65}
@@ -84,7 +86,8 @@
   .btn:disabled{opacity:.38;cursor:default}
   .btn-p{background:var(--accent);color:#fff}
   .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted);font-size:12px}
-  .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:36px;text-align:center;line-height:1.8}
+  .btn-warn{background:#78350f;color:#fbbf24;border:1px solid #92400e}
+  .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:36px;text-align:center;line-height:1.8;white-space:pre-wrap}
   .s-note{font-size:11px;color:var(--muted);text-align:center;opacity:.6;line-height:1.5}
   .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
   .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:340px;display:flex;flex-direction:column;gap:12px}
@@ -93,13 +96,16 @@
   .glow{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
   .g1{top:-90px;left:-90px;background:rgba(59,130,246,.12)}
   .g2{bottom:-90px;right:-90px;background:rgba(6,182,212,.08)}
+  /* Mic hold button on main screen */
+  .mic-hold-hint{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;text-align:center;margin-top:-8px;letter-spacing:.05em}
 </style>
 </head>
 <body>
 <div class="glow g1"></div>
 <div class="glow g2"></div>
 
-<div class="setup" id="setup">
+<!-- SETUP SCREEN -->
+<div class="setup gone" id="setup">
   <div class="s-title">J.A.R.V.I.S</div>
   <div class="s-sub">Configuração inicial. Só precisas de fazer isto uma vez.</div>
   <div class="s-form">
@@ -108,27 +114,27 @@
       <input id="iRepo" placeholder="Aurelhopedro/jarvis-voice" autocomplete="off">
     </div>
     <div>
-      <div class="s-label">GitHub Token (com permissão workflow)</div>
+      <div class="s-label">GitHub Token (permissão workflow)</div>
       <input id="iToken" placeholder="ghp_xxxxxxxxxxxx" type="password" autocomplete="off">
     </div>
-    <button class="btn btn-p" id="btnStart">🚀 Guardar e Iniciar Jarvis</button>
-    <button class="btn btn-g" id="btnManual">ou liga manualmente a um servidor activo</button>
+    <button class="btn btn-p" id="btnSave">💾 Guardar configuração</button>
   </div>
-  <div class="s-status" id="sStatus"></div>
   <div class="s-note">As credenciais ficam guardadas no dispositivo.<br>Não são enviadas para nenhum servidor externo.</div>
 </div>
 
-<div class="app" id="app" style="display:none">
+<!-- MAIN SCREEN — mostrado sempre -->
+<div class="app" id="app">
   <header>
     <span class="logo">J.A.R.V.I.S</span>
     <div style="display:flex;gap:12px;align-items:center">
-      <button onclick="resetConfig()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚙️</button>
+      <button onclick="abrirSetup()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚙️</button>
       <div class="pill">
         <div class="dot" id="dot"></div>
         <span id="stTxt">desligado</span>
       </div>
     </div>
   </header>
+
   <div class="orb-area">
     <div class="orb-wrap">
       <div class="ring r3" id="r3"></div>
@@ -140,14 +146,26 @@
     <div class="progress-wrap" id="progWrap">
       <div class="progress-bar" id="progBar"></div>
     </div>
+
+    <!-- Botões de acção — visíveis quando desligado -->
+    <div id="actionBtns" style="display:flex;flex-direction:column;gap:9px;width:220px;margin-top:8px">
+      <button class="btn btn-p" id="btnIniciar">🚀 Iniciar Jarvis</button>
+      <button class="btn btn-g" id="btnManual">🔗 Ligar manualmente</button>
+    </div>
   </div>
+
   <div class="chat" id="chat"></div>
+
   <div class="bar">
     <input class="txt" id="txtIn" placeholder="Escreve ou fala..." autocomplete="off">
-    <button class="mic" id="mic" title="Microfone">🎤</button>
+    <button class="mic" id="mic" title="Mantém premido para falar">🎤</button>
   </div>
 </div>
 
+<!-- Status bar para polling -->
+<div id="statusBar" style="display:none;position:fixed;bottom:80px;left:0;right:0;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);padding:6px;background:rgba(10,15,30,.9);z-index:50;white-space:pre-wrap" id="statusBar"></div>
+
+<!-- Modal ligação manual -->
 <div class="modal-bg" id="modal">
   <div class="modal-box">
     <div class="modal-title">Ligação manual</div>
@@ -158,9 +176,18 @@
 </div>
 
 <script>
-let ws = null, mediaStream = null, audioCtx = null;
-let processor = null, micOn = false, isSpeaking = false;
+// ═══════════════════════════════════════════════════
+// CONFIG & ESTADO
+// ═══════════════════════════════════════════════════
+let ws = null;
+let isSpeaking = false;
 let repo = '', token = '';
+
+// MediaRecorder para mic (funciona no WebView Android)
+let mediaRecorder = null;
+let mediaStream   = null;
+let gravando      = false;
+let audioCtx      = null;
 
 function salvar(r, t) {
   try { localStorage.setItem('j_repo', r); localStorage.setItem('j_token', t); } catch(e){}
@@ -169,277 +196,338 @@ function carregar() {
   try {
     repo  = localStorage.getItem('j_repo')  || '';
     token = localStorage.getItem('j_token') || '';
-  } catch(e) { repo=''; token=''; }
+  } catch(e) { repo = ''; token = ''; }
 }
-function resetConfig() {
-  if (!confirm('Limpar configuração e voltar ao setup?')) return;
-  try { localStorage.removeItem('j_repo'); localStorage.removeItem('j_token'); } catch(e){}
-  location.reload();
+function abrirSetup() {
+  document.getElementById('iRepo').value  = repo;
+  document.getElementById('iToken').value = token;
+  document.getElementById('setup').classList.remove('gone');
 }
-
-const VAD = {
-  SILENCE_MS:800, THRESHOLD:0.012, SR:16000,
-  buf:[], silenceSamp:0, active:false, silenceCount:0,
-  init(){ this.silenceSamp = this.SR * this.SILENCE_MS / 1000; },
-  reset(){ this.buf=[]; this.active=false; this.silenceCount=0; },
-  process(chunk){
-    const rms = Math.sqrt(chunk.reduce((s,v)=>s+v*v,0)/chunk.length);
-    if(rms > this.THRESHOLD){
-      this.active=true; this.silenceCount=0; this.buf.push(...chunk);
-    } else if(this.active){
-      this.silenceCount+=chunk.length; this.buf.push(...chunk);
-      if(this.silenceCount>=this.silenceSamp){
-        const audio=new Float32Array(this.buf);
-        this.buf=[]; this.silenceCount=0; this.active=false;
-        return audio;
-      }
-    }
-    return null;
-  }
-};
-
-function setEstado(e, txt){
-  document.getElementById('orb').className=`orb ${e}`;
-  const lbl=document.getElementById('lbl');
-  lbl.className=`lbl ${e}`; lbl.textContent=txt;
-  const activo=['listening','speaking','processing'].includes(e);
-  ['r1','r2','r3'].forEach(id=>document.getElementById(id).classList.toggle('on',activo));
-  const dot=document.getElementById('dot');
-  dot.className='dot '+(activo||e==='online'?'on':e==='error'?'err':'spin');
-  document.getElementById('stTxt').textContent=
-    e==='listening'?'a ouvir':e==='speaking'?'a falar':
-    e==='processing'?'a pensar':e==='online'?'online':
-    e==='error'?'erro':txt;
+function fecharSetup() {
+  document.getElementById('setup').classList.add('gone');
 }
 
-function addMsg(txt, quem, init=false){
-  const c=document.getElementById('chat');
-  const d=document.createElement('div');
-  d.className=`msg ${quem}${init?' init':''}`;
-  const w=document.createElement('div');
-  w.className='msg-who';
-  w.textContent=quem==='user'?'Tu':(init?'⚡ Jarvis':'Jarvis');
+// ═══════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════
+function setEstado(e, txt) {
+  document.getElementById('orb').className = `orb ${e}`;
+  const lbl = document.getElementById('lbl');
+  lbl.className = `lbl ${e}`; lbl.textContent = txt;
+  const activo = ['listening','speaking','processing'].includes(e);
+  ['r1','r2','r3'].forEach(id => document.getElementById(id).classList.toggle('on', activo));
+  const dot = document.getElementById('dot');
+  dot.className = 'dot ' + (activo || e === 'online' ? 'on' : e === 'error' ? 'err' : 'spin');
+  document.getElementById('stTxt').textContent =
+    e === 'listening'   ? 'a ouvir'  :
+    e === 'speaking'    ? 'a falar'  :
+    e === 'processing'  ? 'a pensar' :
+    e === 'online'      ? 'online'   :
+    e === 'error'       ? 'erro'     : txt;
+
+  // Mostrar/esconder botões de acção
+  const conectado = ws && ws.readyState === 1;
+  document.getElementById('actionBtns').style.display = conectado ? 'none' : 'flex';
+}
+
+function addMsg(txt, quem, init = false) {
+  const c = document.getElementById('chat');
+  const d = document.createElement('div');
+  d.className = `msg ${quem}${init ? ' init' : ''}`;
+  const w = document.createElement('div');
+  w.className = 'msg-who';
+  w.textContent = quem === 'user' ? 'Tu' : (init ? '⚡ Jarvis' : 'Jarvis');
   d.appendChild(w); d.appendChild(document.createTextNode(txt));
-  c.appendChild(d); c.scrollTop=c.scrollHeight;
+  c.appendChild(d); c.scrollTop = c.scrollHeight;
 }
 
-function sStatus(txt){ document.getElementById('sStatus').textContent=txt; }
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function sStatus(txt) {
+  const el = document.getElementById('statusBar');
+  if (txt) { el.textContent = txt; el.style.display = 'block'; }
+  else { el.style.display = 'none'; }
+}
 
-// ── FIX 1: Ler URL sem Authorization (repo público não precisa) ──
-async function lerUrlDoRepo(){
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════════════
+// GITHUB — ler URL do repo (sem auth, repo público)
+// ═══════════════════════════════════════════════════
+async function lerUrlDoRepo() {
   try {
     const res = await fetch(
       `https://api.github.com/repos/${repo}/contents/jarvis-url.txt`,
-      { headers:{ Accept:'application/vnd.github.v3+json', 'Cache-Control':'no-cache' } }
+      { headers: { Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } }
     );
-    if(!res.ok) return null;
+    if (!res.ok) return null;
     const data = await res.json();
-    const url = atob(data.content.replace(/\n/g,'')).trim();
-    if(url && url.startsWith('https://') && url.includes('trycloudflare')) return url;
-  } catch(e){}
+    const url = atob(data.content.replace(/\n/g, '')).trim();
+    if (url && url.startsWith('https://') && url.includes('trycloudflare')) return url;
+  } catch(e) {}
   return null;
 }
 
-// ── FIX 2: Verificar se o servidor está vivo antes de ligar ──
-async function verificarServidor(url){
+async function verificarServidor(url) {
   try {
     const res = await fetch(url + '/health', { signal: AbortSignal.timeout(5000) });
-    if(!res.ok) return false;
+    if (!res.ok) return false;
     const data = await res.json();
     return data.status === 'online';
-  } catch(e){
-    return false;
-  }
+  } catch(e) { return false; }
 }
 
-// ── Disparar workflow ────────────────────────────────────────
-async function dispararWorkflow(){
+// ═══════════════════════════════════════════════════
+// DISPARAR WORKFLOW — só quando o utilizador carrega em "Iniciar"
+// ═══════════════════════════════════════════════════
+async function dispararWorkflow() {
   const r = await fetch(
     `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/dispatches`,
-    {method:'POST',
-     headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json','Content-Type':'application/json'},
-     body:JSON.stringify({ref:'main',inputs:{duracao:'180'}})}
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ref: 'main', inputs: { duracao: '180' } })
+    }
   );
-  if(r.status !== 204){
-    const err = await r.json().catch(()=>({}));
+  if (r.status !== 204) {
+    const err = await r.json().catch(() => ({}));
     throw new Error(err.message || `HTTP ${r.status}`);
   }
 }
 
-// ── Polling: aguarda URL válida E servidor vivo ──────────────
-async function aguardarUrl(){
+async function aguardarUrl() {
   const progWrap = document.getElementById('progWrap');
   const progBar  = document.getElementById('progBar');
   progWrap.classList.add('show');
 
-  const MAX = 90; // 90 × 10s = 15 min
-  for(let i = 1; i <= MAX; i++){
-    progBar.style.width = Math.round((i/MAX)*100)+'%';
-    const seg = (MAX-i)*10;
-    const min = Math.floor(seg/60);
-    const s   = seg%60;
-    sStatus(`⏳ A aguardar servidor...\n(${min}m${s<10?'0':''}${s}s restantes)`);
+  const MAX = 90;
+  for (let i = 1; i <= MAX; i++) {
+    progBar.style.width = Math.round((i / MAX) * 100) + '%';
+    const seg = (MAX - i) * 10;
+    const min = Math.floor(seg / 60);
+    const s   = seg % 60;
+    sStatus(`⏳ A aguardar servidor...\n(${min}m${s < 10 ? '0' : ''}${s}s restantes)`);
 
     const url = await lerUrlDoRepo();
-    if(url){
+    if (url) {
       sStatus('🔍 URL encontrada. A verificar servidor...');
       const vivo = await verificarServidor(url);
-      if(vivo){
+      if (vivo) {
         progWrap.classList.remove('show');
+        sStatus('');
         return url;
       }
-      // URL existe mas servidor ainda não respondeu — continua polling
-      sStatus(`⏳ Servidor a arrancar...\n(${min}m${s<10?'0':''}${s}s restantes)`);
+      sStatus(`⏳ Servidor a arrancar...\n(${min}m${s < 10 ? '0' : ''}${s}s restantes)`);
     }
     await sleep(10000);
   }
   progWrap.classList.remove('show');
+  sStatus('');
   return null;
 }
 
-// ── WebSocket ─────────────────────────────────────────────────
-function ligar(url){
-  const wsUrl = url.replace(/^https?/,'wss').replace(/\/+$/,'')+'/ws';
-  setEstado('loading','a ligar...');
+// ═══════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════
+function ligar(url) {
+  const wsUrl = url.replace(/^https?/, 'wss').replace(/\/+$/, '') + '/ws';
+  setEstado('loading', 'a ligar...');
   ws = new WebSocket(wsUrl);
+
   ws.onopen = () => {
-    setEstado('listening','a ouvir...');
-    document.getElementById('setup').classList.add('gone');
-    document.getElementById('app').style.display='';
-    VAD.init(); iniciarMic();
-    setInterval(()=>ws?.readyState===1&&ws.send(JSON.stringify({tipo:'ping'})),25000);
+    setEstado('listening', 'a ouvir...');
+    document.getElementById('actionBtns').style.display = 'none';
+    setInterval(() => ws?.readyState === 1 && ws.send(JSON.stringify({ tipo: 'ping' })), 25000);
   };
-  ws.onmessage = async(e) => {
+
+  ws.onmessage = async (e) => {
     const d = JSON.parse(e.data);
-    if(d.tipo==='audio'){
-      isSpeaking=true; setEstado('speaking','a falar...');
-      addMsg(d.texto,'jarvis',d.iniciativa);
+    if (d.tipo === 'audio') {
+      isSpeaking = true; setEstado('speaking', 'a falar...');
+      addMsg(d.texto, 'jarvis', d.iniciativa);
       await tocarAudio(d.dados);
-      isSpeaking=false; setEstado('listening','a ouvir...');
-    } else if(d.tipo==='transcricao'){
-      addMsg(d.texto,'user');
-    } else if(d.tipo==='estado'){
-      if(d.estado==='processando') setEstado('processing','a pensar...');
-      else if(d.estado==='ouvindo') setEstado('listening','a ouvir...');
+      isSpeaking = false; setEstado('listening', 'a ouvir...');
+    } else if (d.tipo === 'transcricao') {
+      addMsg(d.texto, 'user');
+    } else if (d.tipo === 'estado') {
+      if (d.estado === 'processando') setEstado('processing', 'a pensar...');
+      else if (d.estado === 'ouvindo') setEstado('listening', 'a ouvir...');
     }
   };
-  ws.onerror = ()=>setEstado('error','erro de ligação');
-  ws.onclose = ()=>{ setEstado('','desligado'); ws=null; };
+
+  ws.onerror = () => setEstado('error', 'erro de ligação');
+  ws.onclose = () => {
+    setEstado('', 'desligado');
+    ws = null;
+    document.getElementById('actionBtns').style.display = 'flex';
+  };
 }
 
-async function tocarAudio(b64){
-  if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-  const bytes=atob(b64), buf=new Uint8Array(bytes.length);
-  for(let i=0;i<bytes.length;i++) buf[i]=bytes.charCodeAt(i);
-  const decoded=await audioCtx.decodeAudioData(buf.buffer);
-  const src=audioCtx.createBufferSource();
-  src.buffer=decoded; src.connect(audioCtx.destination); src.start();
-  return new Promise(r=>src.onended=r);
+async function tocarAudio(b64) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const bytes = atob(b64), buf = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+  const decoded = await audioCtx.decodeAudioData(buf.buffer);
+  const src = audioCtx.createBufferSource();
+  src.buffer = decoded; src.connect(audioCtx.destination); src.start();
+  return new Promise(r => src.onended = r);
 }
 
-// ── FIX 3: btoa seguro para mobile (loop em vez de spread) ──
-function float32ToBase64(f32arr){
-  const bytes = new Uint8Array(f32arr.buffer);
-  let bin = '';
-  for(let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
-async function iniciarMic(){
-  if(micOn) return;
-  try{
-    if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state==='suspended') await audioCtx.resume();
-    mediaStream=await navigator.mediaDevices.getUserMedia({
-      audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true}
+// ═══════════════════════════════════════════════════
+// MIC — MediaRecorder (funciona no WebView Android)
+// Lógica: manter premido para gravar, largar para enviar
+// ═══════════════════════════════════════════════════
+async function iniciarStream() {
+  if (mediaStream) return true;
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
     });
-    const src=audioCtx.createMediaStreamSource(mediaStream);
-    processor=audioCtx.createScriptProcessor(4096,1,1);
-    processor.onaudioprocess=(ev)=>{
-      if(!ws||ws.readyState!==1||isSpeaking) return;
-      const chunk=ev.inputBuffer.getChannelData(0);
-      const result=VAD.process(chunk);
-      if(result){
-        const b64 = float32ToBase64(result);
-        ws.send(JSON.stringify({tipo:'audio_chunk',dados:b64}));
-      }
-    };
-    src.connect(processor); processor.connect(audioCtx.destination);
-    micOn=true; document.getElementById('mic').textContent='🎤';
-  }catch(e){
-    console.error('Mic:',e);
+    return true;
+  } catch(e) {
+    console.error('Mic:', e);
     document.getElementById('mic').classList.add('muted');
-    document.getElementById('mic').textContent='🚫';
+    document.getElementById('mic').textContent = '🚫';
+    return false;
   }
 }
 
-function pararMic(){
-  processor?.disconnect(); mediaStream?.getTracks().forEach(t=>t.stop());
-  micOn=false;
+async function iniciarGravacao() {
+  if (gravando || isSpeaking) return;
+  if (!ws || ws.readyState !== 1) return;
+
+  const ok = await iniciarStream();
+  if (!ok) return;
+
+  const chunks = [];
+  // Usar WebM/Opus — suportado no Chrome/WebView Android
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : 'audio/webm';
+
+  mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    if (chunks.length === 0) return;
+    const blob = new Blob(chunks, { type: mimeType });
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const b64 = reader.result.split(',')[1];
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ tipo: 'audio_webm', dados: b64 }));
+        setEstado('processing', 'a pensar...');
+      }
+    };
+    reader.readAsDataURL(blob);
+  };
+
+  mediaRecorder.start();
+  gravando = true;
+  setEstado('listening', 'a ouvir...');
+  document.getElementById('mic').classList.add('recording');
+  document.getElementById('mic').textContent = '⏹';
 }
 
-function enviarTexto(msg){
-  if(!ws||ws.readyState!==1) return;
-  ws.send(JSON.stringify({tipo:'texto',mensagem:msg}));
-  addMsg(msg,'user'); setEstado('processing','a pensar...');
+function pararGravacao() {
+  if (!gravando || !mediaRecorder) return;
+  mediaRecorder.stop();
+  gravando = false;
+  document.getElementById('mic').classList.remove('recording');
+  document.getElementById('mic').textContent = '🎤';
 }
 
-async function iniciarWorkflowEConectar(){
-  const btn=document.getElementById('btnStart');
-  if(btn){ btn.disabled=true; btn.textContent='⏳ A iniciar...'; }
+// ═══════════════════════════════════════════════════
+// TEXTO
+// ═══════════════════════════════════════════════════
+function enviarTexto(msg) {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ tipo: 'texto', mensagem: msg }));
+  addMsg(msg, 'user');
+  setEstado('processing', 'a pensar...');
+}
+
+// ═══════════════════════════════════════════════════
+// INICIAR — só quando utilizador carrega no botão
+// ═══════════════════════════════════════════════════
+async function iniciarJarvis() {
+  if (!repo || !token) {
+    abrirSetup();
+    return;
+  }
+  const btn = document.getElementById('btnIniciar');
+  btn.disabled = true; btn.textContent = '⏳ A iniciar...';
   sStatus('A disparar servidor Jarvis...');
-  try{
+  try {
     await dispararWorkflow();
     sStatus('✅ Workflow iniciado!\nA aguardar Whisper carregar (~3 min)...');
     const url = await aguardarUrl();
-    if(url){
-      sStatus('✅ Servidor encontrado! A ligar...');
+    if (url) {
       ligar(url);
     } else {
-      sStatus('⚠️ Tempo esgotado.\nUsa ligação manual com URL do log.');
-      if(btn){ btn.disabled=false; btn.textContent='🔄 Tentar novamente'; }
+      sStatus('⚠️ Tempo esgotado.\nUsa ligação manual com URL do log do GitHub Actions.');
+      btn.disabled = false; btn.textContent = '🔄 Tentar novamente';
     }
-  }catch(e){
-    sStatus('❌ '+e.message);
-    if(btn){ btn.disabled=false; btn.textContent='🚀 Guardar e Iniciar Jarvis'; }
+  } catch(e) {
+    sStatus('❌ ' + e.message);
+    btn.disabled = false; btn.textContent = '🚀 Iniciar Jarvis';
   }
 }
 
-document.getElementById('btnStart').addEventListener('click', async()=>{
-  repo  = document.getElementById('iRepo').value.trim();
-  token = document.getElementById('iToken').value.trim();
-  if(!repo||!token){ sStatus('❌ Preenche os dois campos.'); return; }
-  salvar(repo,token);
-  await iniciarWorkflowEConectar();
+// ═══════════════════════════════════════════════════
+// EVENT LISTENERS
+// ═══════════════════════════════════════════════════
+document.getElementById('btnSave').addEventListener('click', () => {
+  const r = document.getElementById('iRepo').value.trim();
+  const t = document.getElementById('iToken').value.trim();
+  if (!r || !t) { alert('Preenche os dois campos.'); return; }
+  repo = r; token = t;
+  salvar(r, t);
+  fecharSetup();
 });
 
-document.getElementById('btnManual').addEventListener('click',()=>{
-  document.getElementById('modal').style.display='flex';
+document.getElementById('btnIniciar').addEventListener('click', iniciarJarvis);
+
+document.getElementById('btnManual').addEventListener('click', () => {
+  document.getElementById('modal').style.display = 'flex';
 });
-document.getElementById('btnCancel').addEventListener('click',()=>{
-  document.getElementById('modal').style.display='none';
+document.getElementById('btnCancel').addEventListener('click', () => {
+  document.getElementById('modal').style.display = 'none';
 });
-document.getElementById('btnConn').addEventListener('click',()=>{
-  const url=document.getElementById('iServer').value.trim();
-  if(url){ document.getElementById('modal').style.display='none'; ligar(url); }
+document.getElementById('btnConn').addEventListener('click', () => {
+  const url = document.getElementById('iServer').value.trim();
+  if (url) { document.getElementById('modal').style.display = 'none'; ligar(url); }
 });
-document.getElementById('txtIn').addEventListener('keydown',e=>{
-  if(e.key==='Enter'){
-    const msg=e.target.value.trim();
-    if(msg){ enviarTexto(msg); e.target.value=''; }
+
+document.getElementById('txtIn').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const msg = e.target.value.trim();
+    if (msg) { enviarTexto(msg); e.target.value = ''; }
   }
 });
-document.getElementById('mic').addEventListener('click',()=>{
-  if(micOn) pararMic(); else iniciarMic();
+
+// Mic: toque para iniciar/parar (toggle)
+document.getElementById('mic').addEventListener('click', async () => {
+  if (!ws || ws.readyState !== 1) {
+    sStatus('⚠️ Liga primeiro ao servidor Jarvis.');
+    setTimeout(() => sStatus(''), 3000);
+    return;
+  }
+  if (gravando) pararGravacao();
+  else await iniciarGravacao();
 });
 
-VAD.init();
+// ═══════════════════════════════════════════════════
+// ARRANQUE — SEM auto-início. Mostra setup se sem config.
+// ═══════════════════════════════════════════════════
 carregar();
-if(repo && token){
-  iniciarWorkflowEConectar();
+if (!repo || !token) {
+  // Sem config — abre setup automaticamente
+  abrirSetup();
 } else {
-  document.getElementById('setup').classList.remove('gone');
+  // Com config — mostra ecrã principal, utilizador decide quando iniciar
+  setEstado('', 'desligado');
 }
 </script>
 </body>
