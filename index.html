@@ -226,21 +226,31 @@ function addMsg(txt, quem, init=false){
 function sStatus(txt){ document.getElementById('sStatus').textContent=txt; }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-// ── Ler URL do ficheiro jarvis-url.txt no repo ────────────────
+// ── FIX 1: Ler URL sem Authorization (repo público não precisa) ──
 async function lerUrlDoRepo(){
   try {
     const res = await fetch(
       `https://api.github.com/repos/${repo}/contents/jarvis-url.txt`,
-      {headers:{Authorization:`token ${token}`, Accept:'application/vnd.github.v3+json',
-                'Cache-Control':'no-cache'}}
+      { headers:{ Accept:'application/vnd.github.v3+json', 'Cache-Control':'no-cache' } }
     );
     if(!res.ok) return null;
     const data = await res.json();
-    // conteúdo em base64
     const url = atob(data.content.replace(/\n/g,'')).trim();
     if(url && url.startsWith('https://') && url.includes('trycloudflare')) return url;
   } catch(e){}
   return null;
+}
+
+// ── FIX 2: Verificar se o servidor está vivo antes de ligar ──
+async function verificarServidor(url){
+  try {
+    const res = await fetch(url + '/health', { signal: AbortSignal.timeout(5000) });
+    if(!res.ok) return false;
+    const data = await res.json();
+    return data.status === 'online';
+  } catch(e){
+    return false;
+  }
 }
 
 // ── Disparar workflow ────────────────────────────────────────
@@ -257,14 +267,12 @@ async function dispararWorkflow(){
   }
 }
 
-// ── Polling: aguarda o ficheiro jarvis-url.txt ser actualizado ─
+// ── Polling: aguarda URL válida E servidor vivo ──────────────
 async function aguardarUrl(){
   const progWrap = document.getElementById('progWrap');
   const progBar  = document.getElementById('progBar');
   progWrap.classList.add('show');
 
-  // Aguardar o workflow arrancar e o Whisper carregar (~3 min)
-  // Polling a cada 10s durante 15 min máximo
   const MAX = 90; // 90 × 10s = 15 min
   for(let i = 1; i <= MAX; i++){
     progBar.style.width = Math.round((i/MAX)*100)+'%';
@@ -272,10 +280,17 @@ async function aguardarUrl(){
     const min = Math.floor(seg/60);
     const s   = seg%60;
     sStatus(`⏳ A aguardar servidor...\n(${min}m${s<10?'0':''}${s}s restantes)`);
+
     const url = await lerUrlDoRepo();
     if(url){
-      progWrap.classList.remove('show');
-      return url;
+      sStatus('🔍 URL encontrada. A verificar servidor...');
+      const vivo = await verificarServidor(url);
+      if(vivo){
+        progWrap.classList.remove('show');
+        return url;
+      }
+      // URL existe mas servidor ainda não respondeu — continua polling
+      sStatus(`⏳ Servidor a arrancar...\n(${min}m${s<10?'0':''}${s}s restantes)`);
     }
     await sleep(10000);
   }
@@ -323,6 +338,14 @@ async function tocarAudio(b64){
   return new Promise(r=>src.onended=r);
 }
 
+// ── FIX 3: btoa seguro para mobile (loop em vez de spread) ──
+function float32ToBase64(f32arr){
+  const bytes = new Uint8Array(f32arr.buffer);
+  let bin = '';
+  for(let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
 async function iniciarMic(){
   if(micOn) return;
   try{
@@ -338,7 +361,7 @@ async function iniciarMic(){
       const chunk=ev.inputBuffer.getChannelData(0);
       const result=VAD.process(chunk);
       if(result){
-        const b64=btoa(String.fromCharCode(...new Uint8Array(result.buffer)));
+        const b64 = float32ToBase64(result);
         ws.send(JSON.stringify({tipo:'audio_chunk',dados:b64}));
       }
     };
