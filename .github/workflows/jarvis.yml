@@ -51,11 +51,14 @@ jobs:
           groq_ok   = False
 
           if GEMINI_KEY:
-              # Testar modelos Gemini por ordem — do mais recente ao mais antigo
+              # Modelos Gemini API (fonte: ai.google.dev/gemini-api/docs/models, Nov 2026)
+              # Para novos projectos: gemini-3.5-flash-lite ou gemini-3.8-flash
+              # gemini-2.5-flash: acesso restrito a quem já usava
+              # gemini-2.0-flash: shut down — NAO usar
               modelos_gemini = [
-                  "gemini-2.5-flash-lite",
-                  "gemini-2.5-flash",
-                  "gemini-2.0-flash",
+                  "gemini-3.5-flash-lite",   # recomendado para novos projectos, free tier
+                  "gemini-3.6-flash",         # geração anterior, ainda disponível
+                  "gemini-2.5-flash",         # só funciona se já tinhas acesso antes
               ]
               from google import genai as google_genai
               client_gem = google_genai.Client(api_key=GEMINI_KEY)
@@ -80,7 +83,9 @@ jobs:
               print("[GROQ]   A testar modelos disponíveis...")
               from groq import Groq
               client = Groq(api_key=GROQ_KEY)
-              # Modelos Groq Nov 2026 — llama-3.1-8b-instant é o mais seguro no free tier
+              # Modelos Groq Nov 2026 (fonte: groq.com/pricing)
+              # llama-3.1-8b-instant: free tier confirmado, mais rápido
+              # llama-3.3-70b-versatile: pode requerer plano pago
               modelos_groq = [
                   "llama-3.1-8b-instant",
                   "llama-3.3-70b-versatile",
