@@ -58,22 +58,41 @@ jobs:
           python3 scripts/jarvis_server.py &
           JARVIS_PID=$!
 
-          sleep 25
+          # Aguardar o Whisper carregar — polling ao /health em vez de sleep fixo
+          echo "A aguardar o Whisper carregar..."
+          PRONTO=0
+          for i in $(seq 1 30); do
+            sleep 10
+            if curl -s http://localhost:8765/health 2>/dev/null | grep -q '"online"'; then
+              echo "Servidor pronto ao fim de $((i*10))s!"
+              PRONTO=1
+              break
+            fi
+            echo "  Ainda a carregar... ($((i*10))s)"
+          done
 
+          if [ "$PRONTO" -eq 0 ]; then
+            echo "ERRO: servidor nao ficou pronto em 5 minutos. A abortar."
+            kill $JARVIS_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Só agora arranca o túnel — servidor garantidamente pronto
           cloudflared tunnel --url http://localhost:8765 --no-autoupdate \
             --logfile /tmp/cloudflared.log 2>&1 &
           sleep 10
 
           CF_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
 
+          if [ -z "$CF_URL" ]; then
+            echo "ERRO: Cloudflare nao gerou URL. A abortar."
+            kill $JARVIS_PID 2>/dev/null || true
+            exit 1
+          fi
+
           echo "JARVIS ONLINE"
           echo "JARVIS_URL=$CF_URL"
           echo "WS_URL=${CF_URL/https/wss}/ws"
-
-          # Publicar URL no ficheiro jarvis-url.txt do repo para o app ler
-          PAYLOAD=$(printf '{"message":"url: %s","content":"%s","branch":"main"}' \
-            "$CF_URL" \
-            "$(echo -n "$CF_URL" | base64 -w 0)")
 
           # Obter SHA actual do ficheiro
           SHA=$(curl -s \
@@ -82,26 +101,30 @@ jobs:
             "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
             | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
 
-          # Criar ou actualizar ficheiro
+          # Publicar URL no jarvis-url.txt
           if [ -n "$SHA" ]; then
-            curl -s -X PUT \
+            RESULT=$(curl -s -X PUT \
               -H "Authorization: token $GH_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"sha\":\"$SHA\",\"branch\":\"main\"}" \
-              > /dev/null
+              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"sha\":\"$SHA\",\"branch\":\"main\"}")
           else
-            curl -s -X PUT \
+            RESULT=$(curl -s -X PUT \
               -H "Authorization: token $GH_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"branch\":\"main\"}" \
-              > /dev/null
+              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"branch\":\"main\"}")
           fi
 
-          echo "URL publicado no repo: $CF_URL"
+          # Verificar se publicou com sucesso
+          if echo "$RESULT" | grep -q '"content"'; then
+            echo "URL publicada com sucesso no repo: $CF_URL"
+          else
+            echo "AVISO: Pode ter falhado a publicar URL. Resposta:"
+            echo "$RESULT"
+          fi
 
           DURACAO_MIN=${{ github.event.inputs.duracao }}
           DURACAO_SEG=$((DURACAO_MIN * 60))
