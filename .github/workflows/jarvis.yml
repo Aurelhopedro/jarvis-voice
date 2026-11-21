@@ -51,18 +51,28 @@ jobs:
           groq_ok   = False
 
           if GEMINI_KEY:
-              print("[GEMINI] A testar gemini-2.5-flash (google-genai)...")
-              try:
-                  from google import genai as google_genai
-                  client = google_genai.Client(api_key=GEMINI_KEY)
-                  r = client.models.generate_content(
-                      model="gemini-2.5-flash",
-                      contents="Responde apenas com a palavra: OK"
-                  )
-                  print(f"[GEMINI] OK — resposta: {r.text.strip()[:50]}")
-                  gemini_ok = True
-              except Exception as e:
-                  print(f"[GEMINI] FALHOU: {type(e).__name__}: {e}")
+              # Testar modelos Gemini por ordem — do mais recente ao mais antigo
+              modelos_gemini = [
+                  "gemini-2.5-flash-lite",
+                  "gemini-2.5-flash",
+                  "gemini-2.0-flash",
+              ]
+              from google import genai as google_genai
+              client_gem = google_genai.Client(api_key=GEMINI_KEY)
+              for modelo_gem in modelos_gemini:
+                  print(f"[GEMINI] A testar {modelo_gem}...")
+                  try:
+                      r = client_gem.models.generate_content(
+                          model=modelo_gem,
+                          contents="Responde apenas com a palavra: OK"
+                      )
+                      print(f"[GEMINI] OK com '{modelo_gem}' — resposta: {r.text.strip()[:50]}")
+                      gemini_ok = True
+                      with open("/tmp/gemini_model.txt", "w") as f:
+                          f.write(modelo_gem)
+                      break
+                  except Exception as e:
+                      print(f"[GEMINI] '{modelo_gem}' FALHOU: {type(e).__name__}: {str(e)[:120]}")
           else:
               print("[GEMINI] Sem chave — a saltar")
 
@@ -70,11 +80,11 @@ jobs:
               print("[GROQ]   A testar modelos disponíveis...")
               from groq import Groq
               client = Groq(api_key=GROQ_KEY)
-              # Modelos actuais Groq (Novembro 2026) — por ordem de preferência
+              # Modelos Groq Nov 2026 — llama-3.1-8b-instant é o mais seguro no free tier
               modelos_groq = [
+                  "llama-3.1-8b-instant",
                   "llama-3.3-70b-versatile",
                   "meta-llama/llama-4-scout-17b-16e-instruct",
-                  "llama-3.1-8b-instant",
               ]
               for modelo in modelos_groq:
                   try:
@@ -89,7 +99,7 @@ jobs:
                           f.write(modelo)
                       break
                   except Exception as e:
-                      print(f"[GROQ]   '{modelo}' FALHOU: {type(e).__name__}: {e}")
+                      print(f"[GROQ]   '{modelo}' FALHOU: {type(e).__name__}: {str(e)[:120]}")
           else:
               print("[GROQ]   Sem chave — a saltar")
 
@@ -98,10 +108,12 @@ jobs:
           if not gemini_ok and not groq_ok:
               print("RESULTADO: AMBAS AS APIs FALHARAM")
               sys.exit(1)
+          elif gemini_ok and groq_ok:
+              print("RESULTADO: Gemini + Groq OK")
           elif gemini_ok:
-              print("RESULTADO: Gemini OK — LLM operacional")
+              print("RESULTADO: Gemini OK — Groq indisponível")
           elif groq_ok:
-              print("RESULTADO: Groq OK — LLM operacional")
+              print("RESULTADO: Groq OK — Gemini indisponível")
           print("=" * 60)
           PYEOF
 
