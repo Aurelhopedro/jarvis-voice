@@ -9,12 +9,16 @@ from groq import Groq
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
 
-# Modelos actuais (Novembro 2026)
-GEMINI_MODEL = "gemini-2.5-flash"
-GROQ_MODELS  = [
+# Modelos — detecção automática ao arrancar
+GEMINI_MODELS = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+]
+GROQ_MODELS = [
+    "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
     "meta-llama/llama-4-scout-17b-16e-instruct",
-    "llama-3.1-8b-instant",
 ]
 
 SYSTEM_PROMPT = (
@@ -40,30 +44,34 @@ FRASES_INICIATIVA = [
     "Lembre-se que pode falar naturalmente — estou sempre a ouvir.",
 ]
 
-# ── Diagnóstico e detecção de modelo Groq funcional ────────────────
+# ── Diagnóstico e detecção de modelos funcionais ───────────────────
 print("=" * 60)
 print("JARVIS DIAGNÓSTICO DE ARRANQUE")
 print("=" * 60)
 print(f"[CONFIG] GEMINI_API_KEY: {'DEFINIDA (' + str(len(GEMINI_KEY)) + ' chars)' if GEMINI_KEY else 'NÃO DEFINIDA'}")
 print(f"[CONFIG] GROQ_API_KEY:   {'DEFINIDA (' + str(len(GROQ_KEY)) + ' chars)' if GROQ_KEY else 'NÃO DEFINIDA'}")
 
-GROQ_MODEL_ACTIVO = None
+GEMINI_MODEL_ACTIVO = None
+GROQ_MODEL_ACTIVO   = None
 
 if GEMINI_KEY:
-    print(f"[TESTE] A testar Gemini ({GEMINI_MODEL})...")
-    try:
-        from google import genai as google_genai
-        _gc = google_genai.Client(api_key=GEMINI_KEY)
-        _r  = _gc.models.generate_content(model=GEMINI_MODEL, contents="Responde apenas: OK")
-        print(f"[TESTE] Gemini OK: {_r.text.strip()}")
-    except Exception as e:
-        print(f"[TESTE] Gemini FALHOU: {type(e).__name__}: {e}")
+    from google import genai as google_genai
+    _gc = google_genai.Client(api_key=GEMINI_KEY)
+    for _m in GEMINI_MODELS:
+        try:
+            _r = _gc.models.generate_content(model=_m, contents="Responde apenas: OK")
+            GEMINI_MODEL_ACTIVO = _m
+            print(f"[TESTE] Gemini OK com modelo: {_m} → '{_r.text.strip()}'")
+            break
+        except Exception as e:
+            print(f"[TESTE] Gemini '{_m}' FALHOU: {type(e).__name__}: {str(e)[:100]}")
+    if not GEMINI_MODEL_ACTIVO:
+        print("[TESTE] Gemini — nenhum modelo funcionou; Gemini desactivado")
         GEMINI_KEY = ""
 else:
     print("[TESTE] Gemini ignorado (sem chave)")
 
 if GROQ_KEY:
-    print("[TESTE] A detectar modelo Groq funcional...")
     _groq_client = Groq(api_key=GROQ_KEY)
     for _m in GROQ_MODELS:
         try:
@@ -76,17 +84,19 @@ if GROQ_KEY:
             print(f"[TESTE] Groq OK com modelo: {_m}")
             break
         except Exception as e:
-            print(f"[TESTE] Groq '{_m}' FALHOU: {type(e).__name__}: {e}")
+            print(f"[TESTE] Groq '{_m}' FALHOU: {type(e).__name__}: {str(e)[:100]}")
     if not GROQ_MODEL_ACTIVO:
-        print("[TESTE] Groq — nenhum modelo funcionou")
+        print("[TESTE] Groq — nenhum modelo funcionou; Groq desactivado")
         GROQ_KEY = ""
 else:
     print("[TESTE] Groq ignorado (sem chave)")
 
 if not GEMINI_KEY and not GROQ_KEY:
     print("[AVISO] AMBAS AS APIs FALHARAM — Jarvis responderá com mensagem de erro")
-elif GEMINI_KEY:
-    print(f"[OK] LLM activo: Gemini {GEMINI_MODEL}")
+elif GEMINI_MODEL_ACTIVO:
+    print(f"[OK] LLM primário: Gemini {GEMINI_MODEL_ACTIVO}")
+    if GROQ_MODEL_ACTIVO:
+        print(f"[OK] LLM backup:   Groq {GROQ_MODEL_ACTIVO}")
 elif GROQ_MODEL_ACTIVO:
     print(f"[OK] LLM activo: Groq {GROQ_MODEL_ACTIVO}")
 
@@ -158,9 +168,9 @@ def llm(mensagem: str) -> str:
     historico.append({"role": "user", "content": mensagem})
     print(f"[LLM] Mensagem: '{mensagem[:60]}'")
 
-    # Gemini
-    if GEMINI_KEY:
-        print(f"[LLM] A tentar Gemini ({GEMINI_MODEL})...")
+    # Gemini primeiro
+    if GEMINI_KEY and GEMINI_MODEL_ACTIVO:
+        print(f"[LLM] A tentar Gemini ({GEMINI_MODEL_ACTIVO})...")
         try:
             from google import genai as google_genai
             from google.genai import types as genai_types
@@ -170,7 +180,7 @@ def llm(mensagem: str) -> str:
                 role = "user" if m["role"] == "user" else "model"
                 contents.append({"role": role, "parts": [{"text": m["content"]}]})
             resp = client_g.models.generate_content(
-                model=GEMINI_MODEL,
+                model=GEMINI_MODEL_ACTIVO,
                 contents=contents,
                 config=genai_types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -184,7 +194,7 @@ def llm(mensagem: str) -> str:
         except Exception as e:
             print(f"[LLM] Gemini FALHOU: {type(e).__name__}: {e}")
 
-    # Groq — usa o modelo detectado ao arrancar
+    # Groq como fallback
     if GROQ_KEY and GROQ_MODEL_ACTIVO:
         print(f"[LLM] A tentar Groq ({GROQ_MODEL_ACTIVO})...")
         try:
@@ -317,12 +327,12 @@ async def ws_endpoint(ws: WebSocket):
 @app.get("/health")
 def health():
     return {
-        "status":       "online",
-        "jarvis":       "operacional",
-        "whisper":      "pronto",
-        "gemini":       "configurado" if GEMINI_KEY        else "sem chave",
-        "groq":         "configurado" if GROQ_KEY          else "sem chave",
-        "groq_modelo":  GROQ_MODEL_ACTIVO or "nenhum",
+        "status":        "online",
+        "jarvis":        "operacional",
+        "whisper":       "pronto",
+        "gemini":        GEMINI_MODEL_ACTIVO or "indisponivel",
+        "groq":          GROQ_MODEL_ACTIVO   or "indisponivel",
+        "llm_activo":    GEMINI_MODEL_ACTIVO or GROQ_MODEL_ACTIVO or "nenhum",
     }
 
 
