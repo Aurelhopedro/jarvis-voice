@@ -59,6 +59,7 @@ jobs:
           import google.generativeai as genai
           from groq import Groq
 
+          # ── Configuração ──────────────────────────────────────────────
           GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
           GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
           OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -66,7 +67,7 @@ jobs:
           SYSTEM_PROMPT = """És o Jarvis — assistente pessoal de voz, inteligente e proactivo.
           Falas sempre em português de Portugal.
           Tens uma personalidade calorosa, ligeiramente britânica na educação, mas natural e fluente.
-          Ocasionalmente tomas iniciativa: dás dicas úteis, fazes perguntas pertinentes,
+          Ocasionalmente tomas iniciativa: dás dicas úteis, fazes perguntas pertinentes, 
           comentas o que foi dito de forma inteligente.
           Mantém respostas concisas para voz — máx 3 frases por resposta.
           Nunca digas que és uma IA. És o Jarvis, ponto final."""
@@ -90,7 +91,9 @@ jobs:
 
           historico = []
 
+          # ── TTS ───────────────────────────────────────────────────────
           async def texto_para_voz(texto: str) -> str:
+              """Converte texto em áudio base64 usando edge-tts (voz PT natural)"""
               with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                   caminho = f.name
               communicate = edge_tts.Communicate(texto, voice="pt-PT-DuarteNeural")
@@ -100,9 +103,12 @@ jobs:
               os.unlink(caminho)
               return audio_b64
 
+          # ── LLM ───────────────────────────────────────────────────────
           def responder(mensagem: str) -> str:
+              """Tenta Gemini → Groq → fallback"""
               historico.append({"role": "user", "content": mensagem})
 
+              # Gemini
               if GEMINI_KEY:
                   try:
                       genai.configure(api_key=GEMINI_KEY)
@@ -122,6 +128,7 @@ jobs:
                   except Exception as e:
                       print(f"Gemini falhou: {e}")
 
+              # Groq
               if GROQ_KEY:
                   try:
                       client = Groq(api_key=GROQ_KEY)
@@ -141,15 +148,18 @@ jobs:
 
               return "Peço desculpa, estou com dificuldades de ligação."
 
+          # ── WebSocket ─────────────────────────────────────────────────
           @app.websocket("/ws")
           async def websocket_endpoint(ws: WebSocket):
               await ws.accept()
               print("✅ Cliente ligado")
 
+              # Saudação inicial
               saudacao = random.choice(FRASES_INICIO)
               audio = await texto_para_voz(saudacao)
               await ws.send_json({"tipo": "audio", "dados": audio, "texto": saudacao})
 
+              # Iniciativa após 30s
               async def iniciativa_periodica():
                   await asyncio.sleep(30)
                   while True:
@@ -167,15 +177,22 @@ jobs:
               try:
                   while True:
                       data = await ws.receive_json()
+
                       if data.get("tipo") == "texto":
                           msg = data.get("mensagem", "")
                           print(f"👤 {msg}")
                           resposta = responder(msg)
                           print(f"🤖 {resposta}")
                           audio = await texto_para_voz(resposta)
-                          await ws.send_json({"tipo": "audio", "dados": audio, "texto": resposta})
+                          await ws.send_json({
+                              "tipo": "audio",
+                              "dados": audio,
+                              "texto": resposta
+                          })
+
                       elif data.get("tipo") == "ping":
                           await ws.send_json({"tipo": "pong"})
+
               except WebSocketDisconnect:
                   print("❌ Cliente desligado")
 
@@ -194,13 +211,19 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          # Iniciar servidor Jarvis em background
           python3 /tmp/jarvis_server.py &
           JARVIS_PID=$!
+          echo "Jarvis PID: $JARVIS_PID"
+
+          # Aguardar servidor arrancar
           sleep 5
 
+          # Iniciar ngrok em background
           ngrok http 8765 --log=stdout > /tmp/ngrok.log 2>&1 &
           sleep 4
 
+          # Extrair URL público do ngrok
           NGROK_URL=$(curl -s http://localhost:4040/api/tunnels \
             | python3 -c "import sys,json; d=json.load(sys.stdin); \
               print(d['tunnels'][0]['public_url'])" 2>/dev/null)
@@ -215,7 +238,9 @@ jobs:
           echo "📋 Copia este URL para o aplicativo:"
           echo "   $NGROK_URL"
           echo "════════════════════════════════════════"
+          echo ""
 
+          # Manter activo pelo tempo definido
           DURACAO_MIN=${{ github.event.inputs.duracao }}
           DURACAO_SEG=$((DURACAO_MIN * 60))
           echo "⏱️  Jarvis activo por ${DURACAO_MIN} minutos..."
