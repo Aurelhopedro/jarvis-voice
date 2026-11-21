@@ -55,7 +55,7 @@
   .lbl.processing{color:#eab308}
   .progress-wrap{width:160px;height:2px;background:var(--border);border-radius:2px;overflow:hidden;opacity:0;transition:opacity .3s}
   .progress-wrap.show{opacity:1}
-  .progress-bar{height:100%;background:var(--accent);width:0%;transition:width .5s linear}
+  .progress-bar{height:100%;background:var(--accent);width:0%;transition:width 1s linear}
   .chat{overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:9px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
   .msg{max-width:84%;padding:9px 13px;border-radius:12px;font-size:14px;line-height:1.5;animation:fin .2s ease}
   @keyframes fin{from{opacity:0;transform:translateY(4px)}}
@@ -84,7 +84,7 @@
   .btn:disabled{opacity:.38;cursor:default}
   .btn-p{background:var(--accent);color:#fff}
   .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted);font-size:12px}
-  .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:16px;text-align:center;line-height:1.6}
+  .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:36px;text-align:center;line-height:1.8}
   .s-note{font-size:11px;color:var(--muted);text-align:center;opacity:.6;line-height:1.5}
   .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
   .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:340px;display:flex;flex-direction:column;gap:12px}
@@ -161,7 +161,6 @@
 let ws = null, mediaStream = null, audioCtx = null;
 let processor = null, micOn = false, isSpeaking = false;
 let repo = '', token = '';
-let runId = null; // guardar o run ID do workflow disparado
 
 function salvar(r, t) {
   try { localStorage.setItem('j_repo', r); localStorage.setItem('j_token', t); } catch(e){}
@@ -170,7 +169,7 @@ function carregar() {
   try {
     repo  = localStorage.getItem('j_repo')  || '';
     token = localStorage.getItem('j_token') || '';
-  } catch(e) { repo = ''; token = ''; }
+  } catch(e) { repo=''; token=''; }
 }
 function resetConfig() {
   if (!confirm('Limpar configuração e voltar ao setup?')) return;
@@ -213,7 +212,7 @@ function setEstado(e, txt){
     e==='error'?'erro':txt;
 }
 
-function addMsg(txt,quem,init=false){
+function addMsg(txt, quem, init=false){
   const c=document.getElementById('chat');
   const d=document.createElement('div');
   d.className=`msg ${quem}${init?' init':''}`;
@@ -227,77 +226,64 @@ function addMsg(txt,quem,init=false){
 function sStatus(txt){ document.getElementById('sStatus').textContent=txt; }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-// Disparar workflow e obter o run ID
+// ── Ler URL do ficheiro jarvis-url.txt no repo ────────────────
+async function lerUrlDoRepo(){
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${repo}/contents/jarvis-url.txt`,
+      {headers:{Authorization:`token ${token}`, Accept:'application/vnd.github.v3+json',
+                'Cache-Control':'no-cache'}}
+    );
+    if(!res.ok) return null;
+    const data = await res.json();
+    // conteúdo em base64
+    const url = atob(data.content.replace(/\n/g,'')).trim();
+    if(url && url.startsWith('https://') && url.includes('trycloudflare')) return url;
+  } catch(e){}
+  return null;
+}
+
+// ── Disparar workflow ────────────────────────────────────────
 async function dispararWorkflow(){
-  const antes = Date.now();
   const r = await fetch(
     `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/dispatches`,
     {method:'POST',
      headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json','Content-Type':'application/json'},
      body:JSON.stringify({ref:'main',inputs:{duracao:'180'}})}
   );
-  if(r.status !== 204) {
+  if(r.status !== 204){
     const err = await r.json().catch(()=>({}));
-    throw new Error(err.message || r.status);
+    throw new Error(err.message || `HTTP ${r.status}`);
   }
-  // Aguardar 5s e encontrar o run criado depois de "antes"
-  await sleep(5000);
-  for(let i=0; i<10; i++){
-    const res = await fetch(
-      `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/runs?per_page=5`,
-      {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
-    );
-    const data = await res.json();
-    const run = (data.workflow_runs||[]).find(r => new Date(r.created_at).getTime() >= antes - 10000);
-    if(run){ runId = run.id; return run.id; }
-    await sleep(3000);
-  }
-  throw new Error('Não encontrei o run criado');
 }
 
-// Polling — busca logs do run específico
-async function descobrirUrl(rid){
-  const progWrap=document.getElementById('progWrap');
-  const progBar=document.getElementById('progBar');
+// ── Polling: aguarda o ficheiro jarvis-url.txt ser actualizado ─
+async function aguardarUrl(){
+  const progWrap = document.getElementById('progWrap');
+  const progBar  = document.getElementById('progBar');
   progWrap.classList.add('show');
-  const MAX = 40; // 40 tentativas × 15s = 10 minutos
-  for(let i=1; i<=MAX; i++){
-    progBar.style.width = Math.round((i/MAX)*100)+'%';
-    const minutos = Math.round((MAX-i)*15/60);
-    sStatus(`⏳ A aguardar Whisper carregar... (~${minutos} min restantes)`);
-    try{
-      // Buscar jobs do run
-      const jobsRes = await fetch(
-        `https://api.github.com/repos/${repo}/actions/runs/${rid}/jobs`,
-        {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
-      );
-      const jobsData = await jobsRes.json();
-      const job = (jobsData.jobs||[]).find(j=>j.name.includes('Jarvis') || j.name.includes('Iniciar'));
 
-      if(job){
-        // Buscar logs do job
-        const logsRes = await fetch(
-          `https://api.github.com/repos/${repo}/actions/jobs/${job.id}/logs`,
-          {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
-        );
-        if(logsRes.ok){
-          const txt = await logsRes.text();
-          // Vários padrões de match para o URL
-          const m = txt.match(/JARVIS_URL=(https:\/\/[^\s\n]+trycloudflare\.com)/i)
-                 || txt.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
-          if(m){
-            progWrap.classList.remove('show');
-            return m[1] || m[0];
-          }
-        }
-      }
-    } catch(e){ console.warn('Polling erro:', e); }
-    await sleep(15000);
+  // Aguardar o workflow arrancar e o Whisper carregar (~3 min)
+  // Polling a cada 10s durante 15 min máximo
+  const MAX = 90; // 90 × 10s = 15 min
+  for(let i = 1; i <= MAX; i++){
+    progBar.style.width = Math.round((i/MAX)*100)+'%';
+    const seg = (MAX-i)*10;
+    const min = Math.floor(seg/60);
+    const s   = seg%60;
+    sStatus(`⏳ A aguardar servidor...\n(${min}m${s<10?'0':''}${s}s restantes)`);
+    const url = await lerUrlDoRepo();
+    if(url){
+      progWrap.classList.remove('show');
+      return url;
+    }
+    await sleep(10000);
   }
   progWrap.classList.remove('show');
   return null;
 }
 
+// ── WebSocket ─────────────────────────────────────────────────
 function ligar(url){
   const wsUrl = url.replace(/^https?/,'wss').replace(/\/+$/,'')+'/ws';
   setEstado('loading','a ligar...');
@@ -323,8 +309,8 @@ function ligar(url){
       else if(d.estado==='ouvindo') setEstado('listening','a ouvir...');
     }
   };
-  ws.onerror = () => setEstado('error','erro de ligação');
-  ws.onclose = () => { setEstado('','desligado'); ws=null; };
+  ws.onerror = ()=>setEstado('error','erro de ligação');
+  ws.onclose = ()=>{ setEstado('','desligado'); ws=null; };
 }
 
 async function tocarAudio(b64){
@@ -359,7 +345,7 @@ async function iniciarMic(){
     src.connect(processor); processor.connect(audioCtx.destination);
     micOn=true; document.getElementById('mic').textContent='🎤';
   }catch(e){
-    console.error('Mic erro:',e);
+    console.error('Mic:',e);
     document.getElementById('mic').classList.add('muted');
     document.getElementById('mic').textContent='🚫';
   }
@@ -367,7 +353,7 @@ async function iniciarMic(){
 
 function pararMic(){
   processor?.disconnect(); mediaStream?.getTracks().forEach(t=>t.stop());
-  micOn=false; document.getElementById('mic').textContent='🎤';
+  micOn=false;
 }
 
 function enviarTexto(msg){
@@ -377,22 +363,22 @@ function enviarTexto(msg){
 }
 
 async function iniciarWorkflowEConectar(){
-  const btn = document.getElementById('btnStart');
+  const btn=document.getElementById('btnStart');
   if(btn){ btn.disabled=true; btn.textContent='⏳ A iniciar...'; }
   sStatus('A disparar servidor Jarvis...');
   try{
-    const rid = await dispararWorkflow();
-    sStatus('✅ Servidor iniciado! Whisper a carregar (~3 min)...');
-    const url = await descobrirUrl(rid);
+    await dispararWorkflow();
+    sStatus('✅ Workflow iniciado!\nA aguardar Whisper carregar (~3 min)...');
+    const url = await aguardarUrl();
     if(url){
       sStatus('✅ Servidor encontrado! A ligar...');
       ligar(url);
     } else {
-      sStatus('⚠️ Tempo esgotado. Liga manualmente com o URL do log.');
+      sStatus('⚠️ Tempo esgotado.\nUsa ligação manual com URL do log.');
       if(btn){ btn.disabled=false; btn.textContent='🔄 Tentar novamente'; }
     }
   }catch(e){
-    sStatus('❌ Erro: '+e.message);
+    sStatus('❌ '+e.message);
     if(btn){ btn.disabled=false; btn.textContent='🚀 Guardar e Iniciar Jarvis'; }
   }
 }
@@ -427,7 +413,6 @@ document.getElementById('mic').addEventListener('click',()=>{
 
 VAD.init();
 carregar();
-
 if(repo && token){
   iniciarWorkflowEConectar();
 } else {
