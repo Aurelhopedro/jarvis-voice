@@ -1,4 +1,4 @@
-import asyncio, json, os, base64, tempfile, random
+import asyncio, json, os, base64, tempfile, random, subprocess
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,39 +33,6 @@ FRASES_INICIATIVA = [
     "Lembre-se que pode falar naturalmente — estou sempre a ouvir.",
 ]
 
-
-class VAD:
-    def __init__(self, sample_rate=16000, silence_ms=800, threshold=0.01):
-        self.sample_rate  = sample_rate
-        self.silence_samp = int(sample_rate * silence_ms / 1000)
-        self.threshold    = threshold
-        self.buffer       = []
-        self.silence_cnt  = 0
-        self.speaking     = False
-
-    def process(self, chunk: np.ndarray):
-        rms = float(np.sqrt(np.mean(chunk ** 2)))
-        if rms > self.threshold:
-            self.speaking    = True
-            self.silence_cnt = 0
-            self.buffer.append(chunk)
-        elif self.speaking:
-            self.silence_cnt += len(chunk)
-            self.buffer.append(chunk)
-            if self.silence_cnt >= self.silence_samp:
-                audio = np.concatenate(self.buffer)
-                self.buffer      = []
-                self.silence_cnt = 0
-                self.speaking    = False
-                return audio
-        return None
-
-    def reset(self):
-        self.buffer      = []
-        self.silence_cnt = 0
-        self.speaking    = False
-
-
 print("A carregar modelo Whisper...")
 whisper_model = whisper.load_model("base")
 print("Whisper pronto")
@@ -98,11 +65,44 @@ def stt(audio: np.ndarray) -> str:
     return result["text"].strip()
 
 
+def stt_webm(webm_bytes: bytes) -> str:
+    """Converte WebM/Opus → WAV 16kHz mono com ffmpeg, depois passa ao Whisper."""
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f_in:
+        f_in.write(webm_bytes)
+        path_in = f_in.name
+
+    path_out = path_in.replace(".webm", ".wav")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", path_in,
+                "-ar", "16000", "-ac", "1", "-f", "wav", path_out
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+        audio = whisper.load_audio(path_out)
+        result = whisper_model.transcribe(
+            audio, language="pt", fp16=False,
+            condition_on_previous_text=False
+        )
+        return result["text"].strip()
+    except Exception as e:
+        print(f"stt_webm erro: {e}")
+        return ""
+    finally:
+        for p in [path_in, path_out]:
+            try: os.unlink(p)
+            except: pass
+
+
 historico = []
 
 
 def llm(mensagem: str) -> str:
     historico.append({"role": "user", "content": mensagem})
+
     if GEMINI_KEY:
         try:
             genai.configure(api_key=GEMINI_KEY)
@@ -121,6 +121,7 @@ def llm(mensagem: str) -> str:
             return texto
         except Exception as e:
             print(f"Gemini falhou: {e}")
+
     if GROQ_KEY:
         try:
             client = Groq(api_key=GROQ_KEY)
@@ -141,6 +142,7 @@ def llm(mensagem: str) -> str:
             return texto
         except Exception as e:
             print(f"Groq falhou: {e}")
+
     return "Peco desculpa, estou com dificuldades de ligacao."
 
 
@@ -148,8 +150,43 @@ def llm(mensagem: str) -> str:
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     print("Cliente ligado")
-    vad = VAD(sample_rate=16000, silence_ms=800, threshold=0.01)
-    saudacao = random.choice(FRASES_INICIO)
+
+    # VAD para audio_chunk (Float32 — legado, mantido por compatibilidade)
+    from dataclasses import dataclass, field
+    @dataclass
+    class VAD:
+        sample_rate: int = 16000
+        silence_ms: int = 800
+        threshold: float = 0.01
+        buffer: list = field(default_factory=list)
+        silence_cnt: int = 0
+        speaking: bool = False
+
+        def process(self, chunk):
+            rms = float(np.sqrt(np.mean(chunk ** 2)))
+            if rms > self.threshold:
+                self.speaking    = True
+                self.silence_cnt = 0
+                self.buffer.append(chunk)
+            elif self.speaking:
+                self.silence_cnt += len(chunk)
+                self.buffer.append(chunk)
+                if self.silence_cnt >= int(self.sample_rate * self.silence_ms / 1000):
+                    audio = np.concatenate(self.buffer)
+                    self.buffer      = []
+                    self.silence_cnt = 0
+                    self.speaking    = False
+                    return audio
+            return None
+
+        def reset(self):
+            self.buffer      = []
+            self.silence_cnt = 0
+            self.speaking    = False
+
+    vad = VAD()
+
+    saudacao  = random.choice(FRASES_INICIO)
     audio_b64 = await tts(saudacao)
     await ws.send_json({"tipo": "audio", "dados": audio_b64, "texto": saudacao})
 
@@ -158,7 +195,7 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             await asyncio.sleep(120)
             dica = random.choice(FRASES_INICIATIVA)
-            b64 = await tts(dica)
+            b64  = await tts(dica)
             try:
                 await ws.send_json({
                     "tipo": "audio", "dados": b64,
@@ -173,35 +210,57 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             data = await ws.receive_json()
             tipo = data.get("tipo")
-            if tipo == "audio_chunk":
+
+            # ── Áudio WebM/Opus do MediaRecorder (novo) ──────────────────
+            if tipo == "audio_webm":
+                raw_bytes = base64.b64decode(data["dados"])
+                await ws.send_json({"tipo": "estado", "estado": "processando"})
+                texto_user = await asyncio.to_thread(stt_webm, raw_bytes)
+                print(f"User [webm]: {texto_user}")
+                if texto_user and len(texto_user) > 2:
+                    await ws.send_json({"tipo": "transcricao", "texto": texto_user})
+                    resposta = await asyncio.to_thread(llm, texto_user)
+                    print(f"Jarvis: {resposta}")
+                    b64 = await tts(resposta)
+                    await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
+                else:
+                    await ws.send_json({"tipo": "estado", "estado": "ouvindo"})
+
+            # ── Áudio Float32 legado (ScriptProcessor) ───────────────────
+            elif tipo == "audio_chunk":
                 raw   = base64.b64decode(data["dados"])
                 chunk = np.frombuffer(raw, dtype=np.float32)
                 resultado = vad.process(chunk)
                 if resultado is not None and len(resultado) > 3200:
                     await ws.send_json({"tipo": "estado", "estado": "processando"})
-                    texto_user = stt(resultado)
-                    print(f"User: {texto_user}")
+                    texto_user = await asyncio.to_thread(stt, resultado)
+                    print(f"User [f32]: {texto_user}")
                     if texto_user and len(texto_user) > 2:
                         await ws.send_json({"tipo": "transcricao", "texto": texto_user})
-                        resposta = llm(texto_user)
+                        resposta = await asyncio.to_thread(llm, texto_user)
                         print(f"Jarvis: {resposta}")
                         b64 = await tts(resposta)
                         await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
                     else:
                         await ws.send_json({"tipo": "estado", "estado": "ouvindo"})
+
+            # ── Texto ─────────────────────────────────────────────────────
             elif tipo == "texto":
                 msg = data.get("mensagem", "").strip()
                 if msg:
                     print(f"User [texto]: {msg}")
                     await ws.send_json({"tipo": "transcricao", "texto": msg})
-                    resposta = llm(msg)
+                    resposta = await asyncio.to_thread(llm, msg)
                     print(f"Jarvis: {resposta}")
                     b64 = await tts(resposta)
                     await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
+
             elif tipo == "ping":
                 await ws.send_json({"tipo": "pong"})
+
             elif tipo == "vad_reset":
                 vad.reset()
+
     except WebSocketDisconnect:
         print("Cliente desligado")
 
