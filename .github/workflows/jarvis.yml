@@ -44,14 +44,12 @@ jobs:
             soundfile \
             scipy
 
-      - name: 🌐 Instalar e configurar ngrok
+      - name: 🌐 Instalar Cloudflare Tunnel (grátis, sem conta)
         run: |
-          curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
-            | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
-            | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update -qq && sudo apt-get install -y -qq ngrok
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
+          curl -sSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
 
       - name: 🤖 Criar servidor Jarvis com VAD + Whisper
         run: |
@@ -90,32 +88,25 @@ FRASES_INICIATIVA = [
     "Lembre-se que pode falar naturalmente — estou sempre a ouvir.",
 ]
 
-# ── VAD — detecção de actividade de voz ──────────────────
 class VAD:
     def __init__(self, sample_rate=16000, silence_ms=800, threshold=0.01):
         self.sample_rate  = sample_rate
         self.silence_samp = int(sample_rate * silence_ms / 1000)
         self.threshold    = threshold
-        self.buffer       = []        # chunks de áudio (arrays numpy)
+        self.buffer       = []
         self.silence_cnt  = 0
         self.speaking     = False
 
     def process(self, chunk: np.ndarray):
-        """
-        Recebe chunk de áudio float32.
-        Devolve o buffer completo quando detecta fim de fala, senão None.
-        """
         rms = float(np.sqrt(np.mean(chunk ** 2)))
-
         if rms > self.threshold:
-            self.speaking   = True
+            self.speaking    = True
             self.silence_cnt = 0
             self.buffer.append(chunk)
         elif self.speaking:
             self.silence_cnt += len(chunk)
             self.buffer.append(chunk)
             if self.silence_cnt >= self.silence_samp:
-                # Fim de fala detectado
                 audio = np.concatenate(self.buffer)
                 self.buffer      = []
                 self.silence_cnt = 0
@@ -128,17 +119,14 @@ class VAD:
         self.silence_cnt = 0
         self.speaking    = False
 
-# ── Whisper (carregado uma vez) ───────────────────────────
 print("⏳ A carregar modelo Whisper...")
 whisper_model = whisper.load_model("base")
 print("✅ Whisper pronto")
 
-# ── App ───────────────────────────────────────────────────
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
-# ── TTS ───────────────────────────────────────────────────
 async def tts(texto: str) -> str:
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
         path = f.name
@@ -149,32 +137,23 @@ async def tts(texto: str) -> str:
     os.unlink(path)
     return b64
 
-# ── STT (Whisper) ─────────────────────────────────────────
 def stt(audio: np.ndarray) -> str:
     result = whisper_model.transcribe(
-        audio,
-        language="pt",
-        fp16=False,
-        condition_on_previous_text=False
+        audio, language="pt", fp16=False, condition_on_previous_text=False
     )
     return result["text"].strip()
 
-# ── LLM ──────────────────────────────────────────────────
 historico = []
 
 def llm(mensagem: str) -> str:
     historico.append({"role": "user", "content": mensagem})
-
-    # Gemini primeiro
     if GEMINI_KEY:
         try:
             genai.configure(api_key=GEMINI_KEY)
             model = genai.GenerativeModel(
-                "gemini-1.5-flash",
-                system_instruction=SYSTEM_PROMPT
+                "gemini-1.5-flash", system_instruction=SYSTEM_PROMPT
             )
-            hist = [{"role": m["role"], "parts": [m["content"]]}
-                    for m in historico[:-1]]
+            hist = [{"role": m["role"], "parts": [m["content"]]} for m in historico[:-1]]
             chat = model.start_chat(history=hist)
             resp = chat.send_message(mensagem)
             texto = resp.text
@@ -182,8 +161,6 @@ def llm(mensagem: str) -> str:
             return texto
         except Exception as e:
             print(f"Gemini falhou: {e}")
-
-    # Groq fallback
     if GROQ_KEY:
         try:
             client = Groq(api_key=GROQ_KEY)
@@ -192,36 +169,24 @@ def llm(mensagem: str) -> str:
                  "content": m["content"]} for m in historico
             ]
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=msgs,
-                max_tokens=200,
+                model="llama-3.3-70b-versatile", messages=msgs, max_tokens=200
             )
             texto = resp.choices[0].message.content
             historico.append({"role": "assistant", "content": texto})
             return texto
         except Exception as e:
             print(f"Groq falhou: {e}")
-
     return "Peço desculpa, estou com dificuldades de ligação."
 
-# ── WebSocket ─────────────────────────────────────────────
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     print("✅ Cliente ligado")
-
     vad = VAD(sample_rate=16000, silence_ms=800, threshold=0.01)
-
-    # Saudação inicial
     saudacao = random.choice(FRASES_INICIO)
     audio_b64 = await tts(saudacao)
-    await ws.send_json({
-        "tipo": "audio",
-        "dados": audio_b64,
-        "texto": saudacao
-    })
+    await ws.send_json({"tipo": "audio", "dados": audio_b64, "texto": saudacao})
 
-    # Iniciativa periódica (a cada 2 minutos de silêncio)
     async def iniciativa():
         await asyncio.sleep(60)
         while True:
@@ -229,12 +194,7 @@ async def ws_endpoint(ws: WebSocket):
             dica = random.choice(FRASES_INICIATIVA)
             b64 = await tts(dica)
             try:
-                await ws.send_json({
-                    "tipo": "audio",
-                    "dados": b64,
-                    "texto": dica,
-                    "iniciativa": True
-                })
+                await ws.send_json({"tipo": "audio", "dados": b64, "texto": dica, "iniciativa": True})
             except:
                 break
 
@@ -244,43 +204,22 @@ async def ws_endpoint(ws: WebSocket):
         while True:
             data = await ws.receive_json()
             tipo = data.get("tipo")
-
-            # ── Chunk de áudio (escuta contínua) ──────────
             if tipo == "audio_chunk":
-                # Áudio chega como float32 base64
                 raw   = base64.b64decode(data["dados"])
                 chunk = np.frombuffer(raw, dtype=np.float32)
-
                 resultado = vad.process(chunk)
                 if resultado is not None and len(resultado) > 3200:
-                    # Notifica que está a processar
                     await ws.send_json({"tipo": "estado", "estado": "processando"})
-
-                    # STT
                     texto_user = stt(resultado)
                     print(f"👤 {texto_user}")
-
                     if texto_user and len(texto_user) > 2:
-                        await ws.send_json({
-                            "tipo": "transcricao",
-                            "texto": texto_user
-                        })
-
-                        # LLM
+                        await ws.send_json({"tipo": "transcricao", "texto": texto_user})
                         resposta = llm(texto_user)
                         print(f"🤖 {resposta}")
-
-                        # TTS
                         b64 = await tts(resposta)
-                        await ws.send_json({
-                            "tipo": "audio",
-                            "dados": b64,
-                            "texto": resposta
-                        })
+                        await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
                     else:
                         await ws.send_json({"tipo": "estado", "estado": "ouvindo"})
-
-            # ── Texto directo (fallback teclado) ──────────
             elif tipo == "texto":
                 msg = data.get("mensagem", "").strip()
                 if msg:
@@ -289,18 +228,11 @@ async def ws_endpoint(ws: WebSocket):
                     resposta = llm(msg)
                     print(f"🤖 {resposta}")
                     b64 = await tts(resposta)
-                    await ws.send_json({
-                        "tipo": "audio",
-                        "dados": b64,
-                        "texto": resposta
-                    })
-
+                    await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
             elif tipo == "ping":
                 await ws.send_json({"tipo": "pong"})
-
             elif tipo == "vad_reset":
                 vad.reset()
-
     except WebSocketDisconnect:
         print("❌ Cliente desligado")
 
@@ -313,7 +245,7 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8765)
 PYTHON
 
-      - name: 🚀 Iniciar Jarvis + ngrok
+      - name: 🚀 Iniciar Jarvis + Cloudflare Tunnel
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:   ${{ secrets.GROQ_API_KEY }}
@@ -323,24 +255,23 @@ PYTHON
           JARVIS_PID=$!
           echo "Jarvis PID: $JARVIS_PID"
 
-          # Aguardar servidor + modelo Whisper carregarem
-          sleep 20
+          # Aguardar servidor + Whisper carregarem
+          sleep 25
 
-          # Iniciar ngrok
-          ngrok http 8765 --log=stdout > /tmp/ngrok.log 2>&1 &
-          sleep 5
+          # Iniciar Cloudflare Tunnel (sem conta, sem token!)
+          cloudflared tunnel --url http://localhost:8765 --no-autoupdate \
+            --logfile /tmp/cloudflared.log 2>&1 &
+          sleep 8
 
-          # Extrair URL público
-          NGROK_URL=$(curl -s http://localhost:4040/api/tunnels \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); \
-              print(d['tunnels'][0]['public_url'])" 2>/dev/null)
+          # Extrair URL público do log
+          CF_URL=$(grep -o 'https://[a-z0-9\-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
 
           echo ""
           echo "════════════════════════════════════════"
           echo "✅  JARVIS ONLINE"
           echo "════════════════════════════════════════"
-          echo "JARVIS_URL=$NGROK_URL"
-          echo "WS_URL=${NGROK_URL/https/wss}/ws"
+          echo "JARVIS_URL=$CF_URL"
+          echo "WS_URL=${CF_URL/https/wss}/ws"
           echo "════════════════════════════════════════"
           echo ""
 
