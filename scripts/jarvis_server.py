@@ -33,9 +33,48 @@ FRASES_INICIATIVA = [
     "Lembre-se que pode falar naturalmente — estou sempre a ouvir.",
 ]
 
+# ── Diagnóstico de arranque ─────────────────────────────────────────
+print("=" * 60)
+print("JARVIS DIAGNÓSTICO DE ARRANQUE")
+print("=" * 60)
+print(f"[CONFIG] GEMINI_API_KEY: {'DEFINIDA (' + str(len(GEMINI_KEY)) + ' chars)' if GEMINI_KEY else 'NÃO DEFINIDA ou VAZIA'}")
+print(f"[CONFIG] GROQ_API_KEY:   {'DEFINIDA (' + str(len(GROQ_KEY)) + ' chars)' if GROQ_KEY else 'NÃO DEFINIDA ou VAZIA'}")
+
+# Testar Gemini imediatamente ao arrancar
+if GEMINI_KEY:
+    print("[TESTE] A testar Gemini...")
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        m = genai.GenerativeModel("gemini-1.5-flash")
+        r = m.generate_content("Responde apenas: OK")
+        print(f"[TESTE] Gemini OK: {r.text.strip()}")
+    except Exception as e:
+        print(f"[TESTE] Gemini FALHOU: {type(e).__name__}: {e}")
+else:
+    print("[TESTE] Gemini ignorado (sem chave)")
+
+# Testar Groq imediatamente ao arrancar
+if GROQ_KEY:
+    print("[TESTE] A testar Groq...")
+    try:
+        client = Groq(api_key=GROQ_KEY)
+        r = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": "Responde apenas: OK"}],
+            max_tokens=10
+        )
+        print(f"[TESTE] Groq OK: {r.choices[0].message.content.strip()}")
+    except Exception as e:
+        print(f"[TESTE] Groq FALHOU: {type(e).__name__}: {e}")
+else:
+    print("[TESTE] Groq ignorado (sem chave)")
+
+print("=" * 60)
 print("A carregar modelo Whisper...")
 whisper_model = whisper.load_model("base")
 print("Whisper pronto")
+print("=" * 60)
+# ───────────────────────────────────────────────────────────────────
 
 app = FastAPI()
 app.add_middleware(
@@ -74,10 +113,8 @@ def stt_webm(webm_bytes: bytes) -> str:
     path_out = path_in.replace(".webm", ".wav")
     try:
         subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", path_in,
-                "-ar", "16000", "-ac", "1", "-f", "wav", path_out
-            ],
+            ["ffmpeg", "-y", "-i", path_in,
+             "-ar", "16000", "-ac", "1", "-f", "wav", path_out],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True
@@ -89,7 +126,7 @@ def stt_webm(webm_bytes: bytes) -> str:
         )
         return result["text"].strip()
     except Exception as e:
-        print(f"stt_webm erro: {e}")
+        print(f"[STT] stt_webm erro: {type(e).__name__}: {e}")
         return ""
     finally:
         for p in [path_in, path_out]:
@@ -102,8 +139,10 @@ historico = []
 
 def llm(mensagem: str) -> str:
     historico.append({"role": "user", "content": mensagem})
+    print(f"[LLM] Mensagem recebida: '{mensagem[:60]}'")
 
     if GEMINI_KEY:
+        print("[LLM] A tentar Gemini...")
         try:
             genai.configure(api_key=GEMINI_KEY)
             model = genai.GenerativeModel(
@@ -118,11 +157,15 @@ def llm(mensagem: str) -> str:
             resp = chat.send_message(mensagem)
             texto = resp.text
             historico.append({"role": "model", "content": texto})
+            print(f"[LLM] Gemini respondeu: '{texto[:60]}'")
             return texto
         except Exception as e:
-            print(f"Gemini falhou: {e}")
+            print(f"[LLM] Gemini FALHOU: {type(e).__name__}: {e}")
+    else:
+        print("[LLM] Gemini ignorado (sem chave)")
 
     if GROQ_KEY:
+        print("[LLM] A tentar Groq...")
         try:
             client = Groq(api_key=GROQ_KEY)
             msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + [
@@ -139,20 +182,24 @@ def llm(mensagem: str) -> str:
             )
             texto = resp.choices[0].message.content
             historico.append({"role": "assistant", "content": texto})
+            print(f"[LLM] Groq respondeu: '{texto[:60]}'")
             return texto
         except Exception as e:
-            print(f"Groq falhou: {e}")
+            print(f"[LLM] Groq FALHOU: {type(e).__name__}: {e}")
+    else:
+        print("[LLM] Groq ignorado (sem chave)")
 
+    print("[LLM] AMBOS FALHARAM — a devolver mensagem de fallback")
     return "Peco desculpa, estou com dificuldades de ligacao."
 
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    print("Cliente ligado")
+    print("[WS] Cliente ligado")
 
-    # VAD para audio_chunk (Float32 — legado, mantido por compatibilidade)
     from dataclasses import dataclass, field
+
     @dataclass
     class VAD:
         sample_rate: int = 16000
@@ -211,22 +258,23 @@ async def ws_endpoint(ws: WebSocket):
             data = await ws.receive_json()
             tipo = data.get("tipo")
 
-            # ── Áudio WebM/Opus do MediaRecorder (novo) ──────────────────
+            # ── Áudio WebM/Opus do MediaRecorder ─────────────────────────
             if tipo == "audio_webm":
+                print(f"[WS] audio_webm recebido ({len(data['dados'])} chars b64)")
                 raw_bytes = base64.b64decode(data["dados"])
                 await ws.send_json({"tipo": "estado", "estado": "processando"})
                 texto_user = await asyncio.to_thread(stt_webm, raw_bytes)
-                print(f"User [webm]: {texto_user}")
+                print(f"[WS] STT resultado: '{texto_user}'")
                 if texto_user and len(texto_user) > 2:
                     await ws.send_json({"tipo": "transcricao", "texto": texto_user})
                     resposta = await asyncio.to_thread(llm, texto_user)
-                    print(f"Jarvis: {resposta}")
                     b64 = await tts(resposta)
                     await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
                 else:
+                    print("[WS] STT devolveu texto vazio ou muito curto — a ignorar")
                     await ws.send_json({"tipo": "estado", "estado": "ouvindo"})
 
-            # ── Áudio Float32 legado (ScriptProcessor) ───────────────────
+            # ── Áudio Float32 legado ──────────────────────────────────────
             elif tipo == "audio_chunk":
                 raw   = base64.b64decode(data["dados"])
                 chunk = np.frombuffer(raw, dtype=np.float32)
@@ -234,11 +282,10 @@ async def ws_endpoint(ws: WebSocket):
                 if resultado is not None and len(resultado) > 3200:
                     await ws.send_json({"tipo": "estado", "estado": "processando"})
                     texto_user = await asyncio.to_thread(stt, resultado)
-                    print(f"User [f32]: {texto_user}")
+                    print(f"[WS] STT [f32]: '{texto_user}'")
                     if texto_user and len(texto_user) > 2:
                         await ws.send_json({"tipo": "transcricao", "texto": texto_user})
                         resposta = await asyncio.to_thread(llm, texto_user)
-                        print(f"Jarvis: {resposta}")
                         b64 = await tts(resposta)
                         await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
                     else:
@@ -248,10 +295,9 @@ async def ws_endpoint(ws: WebSocket):
             elif tipo == "texto":
                 msg = data.get("mensagem", "").strip()
                 if msg:
-                    print(f"User [texto]: {msg}")
+                    print(f"[WS] texto recebido: '{msg}'")
                     await ws.send_json({"tipo": "transcricao", "texto": msg})
                     resposta = await asyncio.to_thread(llm, msg)
-                    print(f"Jarvis: {resposta}")
                     b64 = await tts(resposta)
                     await ws.send_json({"tipo": "audio", "dados": b64, "texto": resposta})
 
@@ -262,12 +308,20 @@ async def ws_endpoint(ws: WebSocket):
                 vad.reset()
 
     except WebSocketDisconnect:
-        print("Cliente desligado")
+        print("[WS] Cliente desligado")
 
 
 @app.get("/health")
 def health():
-    return {"status": "online", "jarvis": "operacional", "whisper": "pronto"}
+    gemini_ok = bool(GEMINI_KEY)
+    groq_ok   = bool(GROQ_KEY)
+    return {
+        "status":    "online",
+        "jarvis":    "operacional",
+        "whisper":   "pronto",
+        "gemini":    "configurado" if gemini_ok else "sem chave",
+        "groq":      "configurado" if groq_ok   else "sem chave",
+    }
 
 
 if __name__ == "__main__":
