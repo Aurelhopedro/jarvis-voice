@@ -9,12 +9,15 @@ from groq import Groq
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
 
-# Modelos — detecção automática ao arrancar
+# Modelos — fonte: ai.google.dev/gemini-api/docs/models (Nov 2026)
+# Gemini: gemini-2.0-flash está shut down; 2.5 restrito a utilizadores antigos
+# Para novos projectos: gemini-3.5-flash-lite ou gemini-3.6-flash
 GEMINI_MODELS = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
+    "gemini-3.5-flash-lite",   # recomendado pelo Google para novos projectos
+    "gemini-3.6-flash",         # alternativa estável
+    "gemini-2.5-flash",         # só se já tinhas acesso antes
 ]
+# Groq: llama-3.1-8b-instant confirmado no free tier (Nov 2026)
 GROQ_MODELS = [
     "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
