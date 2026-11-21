@@ -12,6 +12,10 @@ jobs:
     name: Compilar APK
     runs-on: ubuntu-latest
 
+    env:
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      ANDROID_HOME: /opt/android-sdk
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,11 +26,19 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Instalar ferramentas do sistema
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zipalign apksigner imagemagick wget unzip
 
-      - name: Instalar ferramentas
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zipalign apksigner imagemagick
+      - name: Instalar Android SDK manualmente
+        run: |
+          mkdir -p /opt/android-sdk/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdtools.zip
+          unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+          mv /tmp/cmdtools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
+          echo "PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools" >> $GITHUB_ENV
+          export PATH="$PATH:/opt/android-sdk/cmdline-tools/latest/bin"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Criar keystore
         run: |
@@ -232,7 +244,10 @@ jobs:
           chmod +x gradlew
 
       - name: Compilar APK
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          export ANDROID_SDK_ROOT=/opt/android-sdk
+          export ANDROID_HOME=/opt/android-sdk
+          ./gradlew assembleRelease --no-daemon
 
       - name: Assinar APK
         run: |
