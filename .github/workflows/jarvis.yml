@@ -1,52 +1,3 @@
-name: Jarvis Servidor de Voz
-
-on:
-  workflow_dispatch:
-    inputs:
-      duracao:
-        description: 'Duracao em minutos (max 180)'
-        required: false
-        default: '180'
-
-jobs:
-  jarvis:
-    name: Iniciar Jarvis
-    runs-on: ubuntu-latest
-    timeout-minutes: 185
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Instalar dependencias do sistema
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg portaudio19-dev python3-pip curl wget libsndfile1
-
-      - name: Instalar dependencias Python
-        run: |
-          pip install --quiet \
-            fastapi \
-            "uvicorn[standard]" \
-            websockets \
-            openai-whisper \
-            edge-tts \
-            google-genai \
-            groq \
-            openai \
-            python-multipart \
-            httpx \
-            pydantic \
-            numpy \
-            soundfile \
-            scipy
-
-      - name: Instalar Cloudflare Tunnel
-        run: |
-          curl -sSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-            -o /usr/local/bin/cloudflared
-          chmod +x /usr/local/bin/cloudflared
-
       - name: Testar APIs (Gemini e Groq)
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -69,12 +20,12 @@ jobs:
           groq_ok   = False
 
           if GEMINI_KEY:
-              print("[GEMINI] A testar gemini-2.0-flash (google-genai)...")
+              print("[GEMINI] A testar gemini-2.5-flash (google-genai)...")
               try:
                   from google import genai as google_genai
                   client = google_genai.Client(api_key=GEMINI_KEY)
                   r = client.models.generate_content(
-                      model="gemini-2.0-flash",
+                      model="gemini-2.5-flash-preview-05-20",
                       contents="Responde apenas com a palavra: OK"
                   )
                   print(f"[GEMINI] OK — resposta: {r.text.strip()[:50]}")
@@ -85,19 +36,31 @@ jobs:
               print("[GEMINI] Sem chave — a saltar")
 
           if GROQ_KEY:
-              print("[GROQ]   A testar llama3-70b-8192...")
-              try:
-                  from groq import Groq
-                  client = Groq(api_key=GROQ_KEY)
-                  r = client.chat.completions.create(
-                      model="llama3-70b-8192",
-                      messages=[{"role": "user", "content": "Responde apenas com a palavra: OK"}],
-                      max_tokens=10
-                  )
-                  print(f"[GROQ]   OK — resposta: {r.choices[0].message.content.strip()[:50]}")
-                  groq_ok = True
-              except Exception as e:
-                  print(f"[GROQ]   FALHOU: {type(e).__name__}: {e}")
+              print("[GROQ]   A testar modelos disponíveis...")
+              from groq import Groq
+              client = Groq(api_key=GROQ_KEY)
+              # Tentar modelos por ordem de preferência
+              modelos_groq = [
+                  "llama-3.3-70b-versatile",
+                  "llama3-groq-70b-8192-tool-use-preview",
+                  "llama-3.1-70b-versatile",
+                  "mixtral-8x7b-32768",
+              ]
+              for modelo in modelos_groq:
+                  try:
+                      r = client.chat.completions.create(
+                          model=modelo,
+                          messages=[{"role": "user", "content": "Responde apenas com a palavra: OK"}],
+                          max_tokens=10
+                      )
+                      print(f"[GROQ]   OK com '{modelo}' — resposta: {r.choices[0].message.content.strip()[:50]}")
+                      groq_ok = True
+                      # Guardar o modelo que funciona para usar no servidor
+                      with open("/tmp/groq_model.txt", "w") as f:
+                          f.write(modelo)
+                      break
+                  except Exception as e:
+                      print(f"[GROQ]   '{modelo}' FALHOU: {type(e).__name__}: {e}")
           else:
               print("[GROQ]   Sem chave — a saltar")
 
@@ -105,123 +68,9 @@ jobs:
           print("=" * 60)
           if not gemini_ok and not groq_ok:
               print("RESULTADO: AMBAS AS APIs FALHARAM")
-              print("O Jarvis vai arrancar mas responderá sempre com erro.")
           elif gemini_ok:
               print("RESULTADO: Gemini OK — LLM operacional")
           elif groq_ok:
-              print("RESULTADO: Groq OK — LLM operacional (Gemini falhou)")
+              print("RESULTADO: Groq OK — LLM operacional")
           print("=" * 60)
           PYEOF
-
-      - name: Iniciar Jarvis e Cloudflare Tunnel
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GH_TOKEN: ${{ secrets.JARVIS_GITHUB_TOKEN }}
-          GH_REPO: ${{ secrets.JARVIS_GITHUB_REPO }}
-        run: |
-          python3 -u scripts/jarvis_server.py > /tmp/jarvis.log 2>&1 &
-          JARVIS_PID=$!
-          echo "Servidor iniciado (PID $JARVIS_PID)"
-
-          echo "A aguardar o Whisper carregar..."
-          PRONTO=0
-          for i in $(seq 1 30); do
-            sleep 10
-            echo "--- LOG SERVIDOR (últimas 5 linhas, ${i}0s) ---"
-            tail -5 /tmp/jarvis.log 2>/dev/null || echo "(sem log ainda)"
-            echo "------------------------------------------------"
-            if curl -s http://localhost:8765/health 2>/dev/null | grep -q '"online"'; then
-              echo "Servidor pronto ao fim de $((i*10))s!"
-              PRONTO=1
-              break
-            fi
-          done
-
-          if [ "$PRONTO" -eq 0 ]; then
-            echo "ERRO: servidor nao ficou pronto. Log completo:"
-            cat /tmp/jarvis.log
-            kill $JARVIS_PID 2>/dev/null || true
-            exit 1
-          fi
-
-          echo "=== LOG COMPLETO DE ARRANQUE ==="
-          cat /tmp/jarvis.log
-          echo "================================="
-
-          echo "HEALTH CHECK:"
-          curl -s http://localhost:8765/health | python3 -m json.tool
-
-          cloudflared tunnel --url http://localhost:8765 --no-autoupdate \
-            --logfile /tmp/cloudflared.log 2>&1 &
-          sleep 10
-
-          CF_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
-
-          if [ -z "$CF_URL" ]; then
-            echo "ERRO: Cloudflare nao gerou URL."
-            kill $JARVIS_PID 2>/dev/null || true
-            exit 1
-          fi
-
-          echo "JARVIS ONLINE"
-          echo "JARVIS_URL=$CF_URL"
-
-          SHA=$(curl -s \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
-
-          if [ -n "$SHA" ]; then
-            RESULT=$(curl -s -X PUT \
-              -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: application/json" \
-              "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"sha\":\"$SHA\",\"branch\":\"main\"}")
-          else
-            RESULT=$(curl -s -X PUT \
-              -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: application/json" \
-              "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"branch\":\"main\"}")
-          fi
-
-          if echo "$RESULT" | grep -q '"content"'; then
-            echo "URL publicada com sucesso: $CF_URL"
-          else
-            echo "AVISO: Falhou a publicar URL:"
-            echo "$RESULT"
-          fi
-
-          DURACAO_MIN=${{ github.event.inputs.duracao }}
-          DURACAO_SEG=$((DURACAO_MIN * 60))
-          echo "Jarvis activo por ${DURACAO_MIN} minutos..."
-
-          for m in $(seq 1 $((DURACAO_MIN / 5))); do
-            sleep 300
-            echo "=== LOG SERVIDOR (min $((m*5))) ==="
-            tail -20 /tmp/jarvis.log 2>/dev/null
-            echo "==================================="
-          done
-
-          SHA2=$(curl -s \
-            -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
-          if [ -n "$SHA2" ]; then
-            curl -s -X PUT \
-              -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: application/json" \
-              "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
-              -d "{\"message\":\"offline\",\"content\":\"$(echo -n "offline" | base64 -w 0)\",\"sha\":\"$SHA2\",\"branch\":\"main\"}" \
-              > /dev/null
-          fi
-
-          kill $JARVIS_PID 2>/dev/null || true
-          echo "Jarvis encerrado."
