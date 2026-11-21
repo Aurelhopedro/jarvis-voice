@@ -45,132 +45,133 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p app/src/main/assets
 
-          python3 - << 'PY'
-import os
+          cat > /tmp/gerar_ficheiros.py << 'PYEOF'
+          import os
 
-manifest = '''<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.aurelhopedro.jarvis">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <application
-        android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:label="Jarvis"
-        android:theme="@style/AppTheme"
-        android:usesCleartextTraffic="true"
-        android:hardwareAccelerated="true">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>'''
+          manifest = """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.aurelhopedro.jarvis">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="Jarvis"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="true"
+                  android:hardwareAccelerated="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:screenOrientation="portrait"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>"""
 
-main_activity = '''package com.aurelhopedro.jarvis;
-import android.app.Activity;
-import android.content.pm.PackageManager;
-import android.os.Bundle;
-import android.webkit.*;
-import android.view.*;
-import android.widget.FrameLayout;
-import android.Manifest;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import android.graphics.Color;
+          main_activity = """package com.aurelhopedro.jarvis;
+          import android.app.Activity;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
+          import android.webkit.*;
+          import android.view.*;
+          import android.widget.FrameLayout;
+          import android.Manifest;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+          import android.graphics.Color;
 
-public class MainActivity extends Activity {
-    private WebView webView;
-    private static final int MIC_PERMISSION = 1001;
-    private static final String JARVIS_URL = "https://aurelhopedro.github.io/jarvis-voice/";
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private static final int MIC_PERMISSION = 1001;
+              private static final String JARVIS_URL = "https://aurelhopedro.github.io/jarvis-voice/";
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        getWindow().setStatusBarColor(Color.parseColor("#0a0f1e"));
-        getWindow().setNavigationBarColor(Color.parseColor("#0a0f1e"));
-        FrameLayout layout = new FrameLayout(this);
-        layout.setBackgroundColor(Color.parseColor("#0a0f1e"));
-        setContentView(layout);
-        webView = new WebView(this);
-        layout.addView(webView, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setUserAgentString("JarvisApp/1.0 Android");
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(PermissionRequest request) {
-                request.grant(request.getResources());
-            }
-        });
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) { return false; }
-        });
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION);
-        } else { carregarJarvis(); }
-    }
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                      View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+                  getWindow().setStatusBarColor(Color.parseColor("#0a0f1e"));
+                  getWindow().setNavigationBarColor(Color.parseColor("#0a0f1e"));
+                  FrameLayout layout = new FrameLayout(this);
+                  layout.setBackgroundColor(Color.parseColor("#0a0f1e"));
+                  setContentView(layout);
+                  webView = new WebView(this);
+                  layout.addView(webView, new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                  s.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  s.setUserAgentString("JarvisApp/1.0 Android");
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(PermissionRequest request) {
+                          request.grant(request.getResources());
+                      }
+                  });
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, String url) { return false; }
+                  });
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                          != PackageManager.PERMISSION_GRANTED) {
+                      ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION);
+                  } else { carregarJarvis(); }
+              }
 
-    private void carregarJarvis() { webView.loadUrl(JARVIS_URL); }
+              private void carregarJarvis() { webView.loadUrl(JARVIS_URL); }
 
-    @Override
-    public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
-        if (req == MIC_PERMISSION) carregarJarvis();
-    }
+              @Override
+              public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+                  if (req == MIC_PERMISSION) carregarJarvis();
+              }
 
-    @Override
-    public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack(); else super.onBackPressed();
-    }
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) webView.goBack(); else super.onBackPressed();
+              }
 
-    @Override protected void onPause() { super.onPause(); webView.onPause(); }
-    @Override protected void onResume() { super.onResume(); webView.onResume(); }
-    @Override protected void onDestroy() { webView.destroy(); super.onDestroy(); }
-}'''
+              @Override protected void onPause() { super.onPause(); webView.onPause(); }
+              @Override protected void onResume() { super.onResume(); webView.onResume(); }
+              @Override protected void onDestroy() { webView.destroy(); super.onDestroy(); }
+          }"""
 
-styles = '''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="AppTheme" parent="android:Theme.Material.NoTitleBar.Fullscreen">
-        <item name="android:windowBackground">#0a0f1e</item>
-        <item name="android:statusBarColor">#0a0f1e</item>
-        <item name="android:navigationBarColor">#0a0f1e</item>
-    </style>
-</resources>'''
+          styles = """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.NoTitleBar.Fullscreen">
+                  <item name="android:windowBackground">#0a0f1e</item>
+                  <item name="android:statusBarColor">#0a0f1e</item>
+                  <item name="android:navigationBarColor">#0a0f1e</item>
+              </style>
+          </resources>"""
 
-strings = '''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Jarvis</string>
-</resources>'''
+          strings = """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Jarvis</string>
+          </resources>"""
 
-with open("app/src/main/AndroidManifest.xml","w") as f: f.write(manifest)
-with open("app/src/main/java/com/aurelhopedro/jarvis/MainActivity.java","w") as f: f.write(main_activity)
-with open("app/src/main/res/values/styles.xml","w") as f: f.write(styles)
-with open("app/src/main/res/values/strings.xml","w") as f: f.write(strings)
-print("Ficheiros criados com sucesso")
-PY
+          with open("app/src/main/AndroidManifest.xml", "w") as f: f.write(manifest)
+          with open("app/src/main/java/com/aurelhopedro/jarvis/MainActivity.java", "w") as f: f.write(main_activity)
+          with open("app/src/main/res/values/styles.xml", "w") as f: f.write(styles)
+          with open("app/src/main/res/values/strings.xml", "w") as f: f.write(strings)
+          print("Ficheiros criados com sucesso")
+          PYEOF
+          python3 /tmp/gerar_ficheiros.py
 
       - name: Criar icones
         run: |
@@ -184,47 +185,49 @@ PY
 
       - name: Criar Gradle
         run: |
-          python3 - << 'PY'
-settings = 'rootProject.name = "JarvisVoice"\ninclude \':app\'\n'
-build_root = '''buildscript {
-    repositories { google(); mavenCentral() }
-    dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
-}
-allprojects { repositories { google(); mavenCentral() } }
-'''
-build_app = '''plugins { id 'com.android.application' }
-android {
-    namespace 'com.aurelhopedro.jarvis'
-    compileSdk 34
-    defaultConfig {
-        applicationId "com.aurelhopedro.jarvis"
-        minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
-    }
-    buildTypes { release { minifyEnabled false } }
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-}
-dependencies { implementation 'androidx.core:core:1.12.0' }
-'''
-wrapper = '''distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-bin.zip
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-'''
-import os
-os.makedirs("gradle/wrapper", exist_ok=True)
-with open("settings.gradle","w") as f: f.write(settings)
-with open("build.gradle","w") as f: f.write(build_root)
-with open("app/build.gradle","w") as f: f.write(build_app)
-with open("gradle/wrapper/gradle-wrapper.properties","w") as f: f.write(wrapper)
-print("Gradle criado")
-PY
+          cat > /tmp/gerar_gradle.py << 'PYEOF'
+          import os
+
+          settings = 'rootProject.name = "JarvisVoice"\ninclude \':app\'\n'
+          build_root = """buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          """
+          build_app = """plugins { id 'com.android.application' }
+          android {
+              namespace 'com.aurelhopedro.jarvis'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.aurelhopedro.jarvis"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes { release { minifyEnabled false } }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          dependencies { implementation 'androidx.core:core:1.12.0' }
+          """
+          wrapper = """distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          """
+          os.makedirs("gradle/wrapper", exist_ok=True)
+          with open("settings.gradle", "w") as f: f.write(settings)
+          with open("build.gradle", "w") as f: f.write(build_root)
+          with open("app/build.gradle", "w") as f: f.write(build_app)
+          with open("gradle/wrapper/gradle-wrapper.properties", "w") as f: f.write(wrapper)
+          print("Gradle criado")
+          PYEOF
+          python3 /tmp/gerar_gradle.py
           curl -sSL https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew -o gradlew
           chmod +x gradlew
 
