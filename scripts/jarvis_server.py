@@ -10,12 +10,11 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
 
 # Modelos actuais (Novembro 2026)
-GEMINI_MODEL = "gemini-2.5-flash-preview-05-20"
+GEMINI_MODEL = "gemini-2.5-flash"
 GROQ_MODELS  = [
     "llama-3.3-70b-versatile",
-    "llama3-groq-70b-8192-tool-use-preview",
-    "llama-3.1-70b-versatile",
-    "mixtral-8x7b-32768",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "llama-3.1-8b-instant",
 ]
 
 SYSTEM_PROMPT = (
