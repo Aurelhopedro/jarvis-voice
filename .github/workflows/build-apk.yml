@@ -35,10 +35,18 @@ jobs:
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdtools.zip
           unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
           mv /tmp/cmdtools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
-          echo "PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools" >> $GITHUB_ENV
           export PATH="$PATH:/opt/android-sdk/cmdline-tools/latest/bin"
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
+          echo "/opt/android-sdk/build-tools/34.0.0" >> $GITHUB_PATH
+
+      - name: Instalar Gradle
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.4-bin.zip -O /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /opt/gradle
+          echo "/opt/gradle/gradle-8.4/bin" >> $GITHUB_PATH
 
       - name: Criar keystore
         run: |
@@ -195,19 +203,23 @@ jobs:
               || touch app/src/main/res/mipmap-${dir}/ic_launcher.png
           done
 
-      - name: Criar Gradle
+      - name: Criar ficheiros Gradle
         run: |
-          cat > /tmp/gerar_gradle.py << 'PYEOF'
-          import os
+          cat > settings.gradle << 'EOF'
+          rootProject.name = "JarvisVoice"
+          include ':app'
+          EOF
 
-          settings = 'rootProject.name = "JarvisVoice"\ninclude \':app\'\n'
-          build_root = """buildscript {
+          cat > build.gradle << 'EOF'
+          buildscript {
               repositories { google(); mavenCentral() }
               dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
           }
           allprojects { repositories { google(); mavenCentral() } }
-          """
-          build_app = """plugins { id 'com.android.application' }
+          EOF
+
+          cat > app/build.gradle << 'EOF'
+          plugins { id 'com.android.application' }
           android {
               namespace 'com.aurelhopedro.jarvis'
               compileSdk 34
@@ -225,29 +237,15 @@ jobs:
               }
           }
           dependencies { implementation 'androidx.core:core:1.12.0' }
-          """
-          wrapper = """distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\\://services.gradle.org/distributions/gradle-8.4-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          """
-          os.makedirs("gradle/wrapper", exist_ok=True)
-          with open("settings.gradle", "w") as f: f.write(settings)
-          with open("build.gradle", "w") as f: f.write(build_root)
-          with open("app/build.gradle", "w") as f: f.write(build_app)
-          with open("gradle/wrapper/gradle-wrapper.properties", "w") as f: f.write(wrapper)
-          print("Gradle criado")
-          PYEOF
-          python3 /tmp/gerar_gradle.py
-          curl -sSL https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew -o gradlew
-          chmod +x gradlew
+          EOF
+
+          cat > gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          EOF
 
       - name: Compilar APK
-        run: |
-          export ANDROID_SDK_ROOT=/opt/android-sdk
-          export ANDROID_HOME=/opt/android-sdk
-          ./gradlew assembleRelease --no-daemon
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Assinar APK
         run: |
