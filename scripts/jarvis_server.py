@@ -9,42 +9,44 @@ from groq import Groq
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
 
-# Modelos — fonte: ai.google.dev/gemini-api/docs/models (Nov 2026)
-# Gemini: gemini-2.0-flash está shut down; 2.5 restrito a utilizadores antigos
-# Para novos projectos: gemini-3.5-flash-lite ou gemini-3.6-flash
 GEMINI_MODELS = [
-    "gemini-3.5-flash-lite",   # recomendado pelo Google para novos projectos
-    "gemini-3.6-flash",         # alternativa estável
-    "gemini-2.5-flash",         # só se já tinhas acesso antes
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
 ]
-# Groq: llama-3.1-8b-instant confirmado no free tier (Nov 2026)
 GROQ_MODELS = [
     "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
     "meta-llama/llama-4-scout-17b-16e-instruct",
 ]
 
+# Voz: RaquelNeural soa mais natural que DuarteNeural em pt-PT
+# Ajustes de rate e pitch para soar mais fluido e menos robótico
+TTS_VOICE  = "pt-PT-RaquelNeural"
+TTS_RATE   = "-5%"    # ligeiramente mais lento que o default = mais natural
+TTS_PITCH  = "+0Hz"   # pitch neutro
+
 SYSTEM_PROMPT = (
     "Es o Jarvis — assistente pessoal de voz, inteligente e proactivo. "
     "Falas sempre em portugues de Portugal, com naturalidade e fluidez. "
     "Tens personalidade calorosa, ligeiramente britanica na educacao. "
     "Tomas iniciativa: das dicas, fazes perguntas pertinentes, comentas de forma inteligente. "
-    "Respostas curtas e directas para voz — maximo 3 frases. "
+    "Respostas curtas e directas para voz — maximo 2 frases. Sem listas, sem asteriscos, sem simbolos. "
+    "Fala como uma pessoa real, nao como um robot. "
     "Nunca digas que es uma IA. Es o Jarvis."
 )
 
 FRASES_INICIO = [
     "Jarvis operacional. Como posso ajudar?",
-    "Sistema activo. Estou a disposicao.",
-    "Pronto para servir. O que precisa?",
-    "Jarvis online. Diga.",
+    "Pronto. Diga.",
+    "Estou aqui. O que precisa?",
+    "Online. Diga o que precisa.",
 ]
 
 FRASES_INICIATIVA = [
-    "Esta tudo bem? Precisa de alguma coisa?",
-    "Posso fazer pesquisas, dar conselhos ou simplesmente conversar.",
-    "Se tiver alguma duvida, estou aqui.",
-    "Lembre-se que pode falar naturalmente — estou sempre a ouvir.",
+    "Esta tudo bem? Posso ajudar em alguma coisa?",
+    "Se precisar de alguma coisa, estou aqui.",
+    "Pode falar naturalmente, estou a ouvir.",
 ]
 
 # ── Diagnóstico e detecção de modelos funcionais ───────────────────
@@ -103,9 +105,11 @@ elif GEMINI_MODEL_ACTIVO:
 elif GROQ_MODEL_ACTIVO:
     print(f"[OK] LLM activo: Groq {GROQ_MODEL_ACTIVO}")
 
+print(f"[OK] Voz TTS: {TTS_VOICE} (rate={TTS_RATE})")
 print("=" * 60)
-print("A carregar modelo Whisper...")
-whisper_model = whisper.load_model("base")
+# Whisper small: melhor transcrição, ~4x mais pesado que base mas ainda rápido
+print("A carregar modelo Whisper 'small'...")
+whisper_model = whisper.load_model("small")
 print("Whisper pronto")
 print("=" * 60)
 # ───────────────────────────────────────────────────────────────────
@@ -120,9 +124,15 @@ app.add_middleware(
 
 
 async def tts(texto: str) -> str:
+    """Converte texto em áudio base64 usando edge-tts com voz natural."""
+    # Limpar texto de símbolos que soam mal em voz
+    import re
+    texto = re.sub(r'[*#_`•\-]{1,}', '', texto)   # asteriscos, hashes, bullets
+    texto = re.sub(r'\s+', ' ', texto).strip()
+
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
         path = f.name
-    comm = edge_tts.Communicate(texto, voice="pt-PT-DuarteNeural")
+    comm = edge_tts.Communicate(texto, voice=TTS_VOICE, rate=TTS_RATE, pitch=TTS_PITCH)
     await comm.save(path)
     with open(path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
@@ -133,7 +143,8 @@ async def tts(texto: str) -> str:
 def stt(audio: np.ndarray) -> str:
     result = whisper_model.transcribe(
         audio, language="pt", fp16=False,
-        condition_on_previous_text=False
+        condition_on_previous_text=False,
+        initial_prompt="Conversa em português de Portugal com o assistente Jarvis."
     )
     return result["text"].strip()
 
@@ -152,7 +163,8 @@ def stt_webm(webm_bytes: bytes) -> str:
         audio = whisper.load_audio(path_out)
         result = whisper_model.transcribe(
             audio, language="pt", fp16=False,
-            condition_on_previous_text=False
+            condition_on_previous_text=False,
+            initial_prompt="Conversa em português de Portugal com o assistente Jarvis."
         )
         return result["text"].strip()
     except Exception as e:
@@ -171,7 +183,6 @@ def llm(mensagem: str) -> str:
     historico.append({"role": "user", "content": mensagem})
     print(f"[LLM] Mensagem: '{mensagem[:60]}'")
 
-    # Gemini primeiro
     if GEMINI_KEY and GEMINI_MODEL_ACTIVO:
         print(f"[LLM] A tentar Gemini ({GEMINI_MODEL_ACTIVO})...")
         try:
@@ -187,7 +198,7 @@ def llm(mensagem: str) -> str:
                 contents=contents,
                 config=genai_types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
-                    max_output_tokens=200,
+                    max_output_tokens=150,
                 )
             )
             texto = resp.text
@@ -197,7 +208,6 @@ def llm(mensagem: str) -> str:
         except Exception as e:
             print(f"[LLM] Gemini FALHOU: {type(e).__name__}: {e}")
 
-    # Groq como fallback
     if GROQ_KEY and GROQ_MODEL_ACTIVO:
         print(f"[LLM] A tentar Groq ({GROQ_MODEL_ACTIVO})...")
         try:
@@ -212,7 +222,7 @@ def llm(mensagem: str) -> str:
             resp = client_g.chat.completions.create(
                 model=GROQ_MODEL_ACTIVO,
                 messages=msgs,
-                max_tokens=200
+                max_tokens=150
             )
             texto = resp.choices[0].message.content
             historico.append({"role": "assistant", "content": texto})
@@ -222,7 +232,7 @@ def llm(mensagem: str) -> str:
             print(f"[LLM] Groq FALHOU: {type(e).__name__}: {e}")
 
     print("[LLM] AMBOS FALHARAM — fallback")
-    return "Peco desculpa, estou com dificuldades de ligacao."
+    return "Peço desculpa, estou com dificuldades de ligação."
 
 
 @app.websocket("/ws")
@@ -332,7 +342,8 @@ def health():
     return {
         "status":        "online",
         "jarvis":        "operacional",
-        "whisper":       "pronto",
+        "whisper":       "small",
+        "tts_voz":       TTS_VOICE,
         "gemini":        GEMINI_MODEL_ACTIVO or "indisponivel",
         "groq":          GROQ_MODEL_ACTIVO   or "indisponivel",
         "llm_activo":    GEMINI_MODEL_ACTIVO or GROQ_MODEL_ACTIVO or "nenhum",
