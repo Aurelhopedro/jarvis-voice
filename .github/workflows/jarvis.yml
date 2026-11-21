@@ -31,7 +31,7 @@ jobs:
             websockets \
             openai-whisper \
             edge-tts \
-            google-generativeai \
+            google-genai \
             groq \
             openai \
             python-multipart \
@@ -61,54 +61,55 @@ jobs:
           print("=" * 60)
           print("TESTE DE APIs — DIAGNÓSTICO")
           print("=" * 60)
-          print(f"GEMINI_API_KEY: {'DEFINIDA (' + str(len(GEMINI_KEY)) + ' chars)' if GEMINI_KEY else '*** NAO DEFINIDA ou VAZIA ***'}")
-          print(f"GROQ_API_KEY:   {'DEFINIDA (' + str(len(GROQ_KEY)) + ' chars)' if GROQ_KEY else '*** NAO DEFINIDA ou VAZIA ***'}")
+          print(f"GEMINI_API_KEY: {'DEFINIDA (' + str(len(GEMINI_KEY)) + ' chars)' if GEMINI_KEY else '*** NAO DEFINIDA ***'}")
+          print(f"GROQ_API_KEY:   {'DEFINIDA (' + str(len(GROQ_KEY)) + ' chars)' if GROQ_KEY else '*** NAO DEFINIDA ***'}")
           print()
 
           gemini_ok = False
           groq_ok   = False
 
           if GEMINI_KEY:
-              print("[GEMINI] A testar ligação...")
+              print("[GEMINI] A testar gemini-2.0-flash (google-genai)...")
               try:
-                  import google.generativeai as genai
-                  genai.configure(api_key=GEMINI_KEY)
-                  m = genai.GenerativeModel("gemini-1.5-flash")
-                  r = m.generate_content("Responde apenas com a palavra: OK")
-                  print(f"[GEMINI] ✅ OK — resposta: {r.text.strip()[:50]}")
+                  from google import genai as google_genai
+                  client = google_genai.Client(api_key=GEMINI_KEY)
+                  r = client.models.generate_content(
+                      model="gemini-2.0-flash",
+                      contents="Responde apenas com a palavra: OK"
+                  )
+                  print(f"[GEMINI] OK — resposta: {r.text.strip()[:50]}")
                   gemini_ok = True
               except Exception as e:
-                  print(f"[GEMINI] ❌ FALHOU: {type(e).__name__}: {e}")
+                  print(f"[GEMINI] FALHOU: {type(e).__name__}: {e}")
           else:
-              print("[GEMINI] ⚠️  Sem chave — a saltar")
+              print("[GEMINI] Sem chave — a saltar")
 
           if GROQ_KEY:
-              print("[GROQ]   A testar ligação...")
+              print("[GROQ]   A testar llama3-70b-8192...")
               try:
                   from groq import Groq
                   client = Groq(api_key=GROQ_KEY)
                   r = client.chat.completions.create(
-                      model="llama-3.3-70b-versatile",
+                      model="llama3-70b-8192",
                       messages=[{"role": "user", "content": "Responde apenas com a palavra: OK"}],
                       max_tokens=10
                   )
-                  print(f"[GROQ]   ✅ OK — resposta: {r.choices[0].message.content.strip()[:50]}")
+                  print(f"[GROQ]   OK — resposta: {r.choices[0].message.content.strip()[:50]}")
                   groq_ok = True
               except Exception as e:
-                  print(f"[GROQ]   ❌ FALHOU: {type(e).__name__}: {e}")
+                  print(f"[GROQ]   FALHOU: {type(e).__name__}: {e}")
           else:
-              print("[GROQ]   ⚠️  Sem chave — a saltar")
+              print("[GROQ]   Sem chave — a saltar")
 
           print()
           print("=" * 60)
           if not gemini_ok and not groq_ok:
-              print("RESULTADO: ❌ AMBAS AS APIs FALHARAM")
-              print("O Jarvis vai arrancar mas responderá sempre com mensagem de erro.")
-              print("Verifica as chaves em Settings → Secrets → Actions do repo.")
+              print("RESULTADO: AMBAS AS APIs FALHARAM")
+              print("O Jarvis vai arrancar mas responderá sempre com erro.")
           elif gemini_ok:
-              print("RESULTADO: ✅ Gemini funciona — LLM operacional")
+              print("RESULTADO: Gemini OK — LLM operacional")
           elif groq_ok:
-              print("RESULTADO: ✅ Groq funciona — LLM operacional (Gemini falhou)")
+              print("RESULTADO: Groq OK — LLM operacional (Gemini falhou)")
           print("=" * 60)
           PYEOF
 
@@ -120,45 +121,38 @@ jobs:
           GH_TOKEN: ${{ secrets.JARVIS_GITHUB_TOKEN }}
           GH_REPO: ${{ secrets.JARVIS_GITHUB_REPO }}
         run: |
-          # Correr servidor com logs visiveis no ficheiro
           python3 -u scripts/jarvis_server.py > /tmp/jarvis.log 2>&1 &
           JARVIS_PID=$!
-          echo "Servidor iniciado com PID $JARVIS_PID — logs em /tmp/jarvis.log"
+          echo "Servidor iniciado (PID $JARVIS_PID)"
 
-          # Aguardar o Whisper carregar — polling ao /health
           echo "A aguardar o Whisper carregar..."
           PRONTO=0
           for i in $(seq 1 30); do
             sleep 10
-            # Mostrar últimas linhas do log do servidor
-            echo "--- LOG SERVIDOR (últimas 5 linhas) ---"
+            echo "--- LOG SERVIDOR (últimas 5 linhas, ${i}0s) ---"
             tail -5 /tmp/jarvis.log 2>/dev/null || echo "(sem log ainda)"
-            echo "---------------------------------------"
+            echo "------------------------------------------------"
             if curl -s http://localhost:8765/health 2>/dev/null | grep -q '"online"'; then
               echo "Servidor pronto ao fim de $((i*10))s!"
               PRONTO=1
               break
             fi
-            echo "  Ainda a carregar... ($((i*10))s)"
           done
 
           if [ "$PRONTO" -eq 0 ]; then
-            echo "ERRO: servidor nao ficou pronto em 5 minutos."
-            echo "=== LOG COMPLETO DO SERVIDOR ==="
+            echo "ERRO: servidor nao ficou pronto. Log completo:"
             cat /tmp/jarvis.log
             kill $JARVIS_PID 2>/dev/null || true
             exit 1
           fi
 
-          echo "=== LOG ARRANQUE DO SERVIDOR ==="
+          echo "=== LOG COMPLETO DE ARRANQUE ==="
           cat /tmp/jarvis.log
           echo "================================="
 
-          # Resposta do /health com detalhe
           echo "HEALTH CHECK:"
           curl -s http://localhost:8765/health | python3 -m json.tool
 
-          # Só agora arranca o túnel
           cloudflared tunnel --url http://localhost:8765 --no-autoupdate \
             --logfile /tmp/cloudflared.log 2>&1 &
           sleep 10
@@ -173,9 +167,7 @@ jobs:
 
           echo "JARVIS ONLINE"
           echo "JARVIS_URL=$CF_URL"
-          echo "WS_URL=${CF_URL/https/wss}/ws"
 
-          # Publicar URL no jarvis-url.txt
           SHA=$(curl -s \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
@@ -201,7 +193,7 @@ jobs:
           if echo "$RESULT" | grep -q '"content"'; then
             echo "URL publicada com sucesso: $CF_URL"
           else
-            echo "AVISO: Falhou a publicar URL. Resposta:"
+            echo "AVISO: Falhou a publicar URL:"
             echo "$RESULT"
           fi
 
@@ -209,15 +201,13 @@ jobs:
           DURACAO_SEG=$((DURACAO_MIN * 60))
           echo "Jarvis activo por ${DURACAO_MIN} minutos..."
 
-          # Mostrar logs do servidor a cada 5 minutos enquanto activo
           for m in $(seq 1 $((DURACAO_MIN / 5))); do
             sleep 300
-            echo "=== LOG SERVIDOR (min $((m*5))) — últimas 20 linhas ==="
+            echo "=== LOG SERVIDOR (min $((m*5))) ==="
             tail -20 /tmp/jarvis.log 2>/dev/null
-            echo "======================================================"
+            echo "==================================="
           done
 
-          # Limpar URL ao encerrar
           SHA2=$(curl -s \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
