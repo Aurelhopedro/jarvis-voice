@@ -1,0 +1,56 @@
+name: 🌐 Deploy GitHub Pages — Jarvis Interface
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Publicar no GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Configurar Pages
+        uses: actions/configure-pages@v4
+
+      - name: 📦 Preparar ficheiros para Pages
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+          echo "✅ index.html copiado para _site/"
+
+      - name: 📤 Upload para Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: 🚀 Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: 📋 Sumário
+        run: |
+          echo "════════════════════════════════════════"
+          echo "✅  GITHUB PAGES ATUALIZADO"
+          echo "🌐 URL: https://aurelhopedro.github.io/jarvis-voice/"
+          echo "📱 O APK já aponta para este URL"
+          echo "🔄 Próximo push no index.html atualiza automaticamente"
+          echo "════════════════════════════════════════"
