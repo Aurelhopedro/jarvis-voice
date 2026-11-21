@@ -46,39 +46,83 @@ jobs:
           curl -sSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
             -o /usr/local/bin/cloudflared
           chmod +x /usr/local/bin/cloudflared
-          cloudflared --version
 
       - name: Iniciar Jarvis e Cloudflare Tunnel
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.JARVIS_GITHUB_TOKEN }}
+          GH_REPO: ${{ secrets.JARVIS_GITHUB_REPO }}
         run: |
           python3 scripts/jarvis_server.py &
           JARVIS_PID=$!
-          echo "Jarvis PID: $JARVIS_PID"
 
           sleep 25
 
           cloudflared tunnel --url http://localhost:8765 --no-autoupdate \
             --logfile /tmp/cloudflared.log 2>&1 &
-          sleep 8
+          sleep 10
 
           CF_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
 
-          echo ""
-          echo "========================================"
           echo "JARVIS ONLINE"
-          echo "========================================"
           echo "JARVIS_URL=$CF_URL"
           echo "WS_URL=${CF_URL/https/wss}/ws"
-          echo "========================================"
-          echo ""
+
+          # Publicar URL no ficheiro jarvis-url.txt do repo para o app ler
+          PAYLOAD=$(printf '{"message":"url: %s","content":"%s","branch":"main"}' \
+            "$CF_URL" \
+            "$(echo -n "$CF_URL" | base64 -w 0)")
+
+          # Obter SHA actual do ficheiro
+          SHA=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
+
+          # Criar ou actualizar ficheiro
+          if [ -n "$SHA" ]; then
+            curl -s -X PUT \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
+              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"sha\":\"$SHA\",\"branch\":\"main\"}" \
+              > /dev/null
+          else
+            curl -s -X PUT \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
+              -d "{\"message\":\"url: $CF_URL\",\"content\":\"$(echo -n "$CF_URL" | base64 -w 0)\",\"branch\":\"main\"}" \
+              > /dev/null
+          fi
+
+          echo "URL publicado no repo: $CF_URL"
 
           DURACAO_MIN=${{ github.event.inputs.duracao }}
           DURACAO_SEG=$((DURACAO_MIN * 60))
           echo "Jarvis activo por ${DURACAO_MIN} minutos..."
           sleep $DURACAO_SEG
 
-          echo "Tempo esgotado. A encerrar."
+          # Limpar URL ao encerrar
+          SHA2=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
+          if [ -n "$SHA2" ]; then
+            curl -s -X PUT \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json" \
+              "https://api.github.com/repos/$GH_REPO/contents/jarvis-url.txt" \
+              -d "{\"message\":\"offline\",\"content\":\"$(echo -n "offline" | base64 -w 0)\",\"sha\":\"$SHA2\",\"branch\":\"main\"}" \
+              > /dev/null
+          fi
+
           kill $JARVIS_PID 2>/dev/null || true
+          echo "Jarvis encerrado."
