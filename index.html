@@ -12,17 +12,11 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap">
 <style>
   :root {
-    --bg:      #0a0f1e;
-    --surface: #0f1729;
-    --border:  #1e2d4a;
-    --accent:  #3b82f6;
-    --accent2: #06b6d4;
-    --danger:  #ef4444;
-    --ok:      #22c55e;
-    --text:    #e2e8f0;
-    --muted:   #64748b;
-    padding-top: env(safe-area-inset-top,0px);
-    padding-bottom: env(safe-area-inset-bottom,0px);
+    --bg:#0a0f1e;--surface:#0f1729;--border:#1e2d4a;
+    --accent:#3b82f6;--accent2:#06b6d4;--danger:#ef4444;
+    --ok:#22c55e;--text:#e2e8f0;--muted:#64748b;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-weight:300;overflow:hidden}
@@ -31,8 +25,8 @@
   .logo{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;color:var(--accent)}
   .pill{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:all .4s}
-  .dot.on  {background:var(--ok);box-shadow:0 0 8px #22c55e77}
-  .dot.err {background:var(--danger)}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px #22c55e77}
+  .dot.err{background:var(--danger)}
   .dot.spin{background:var(--accent);animation:blink 1s infinite}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
   .orb-area{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px}
@@ -51,13 +45,13 @@
   .orb.processing{border-color:rgba(234,179,8,.4)}
   .orb.processing::before{background:radial-gradient(circle at 38% 36%,rgba(234,179,8,.25) 0%,transparent 65%);opacity:1}
   .pulse{width:28px;height:28px;border-radius:50%;background:var(--accent);opacity:.12}
-  .orb.listening  .pulse{opacity:.55;animation:breath .75s ease-in-out infinite}
-  .orb.speaking   .pulse{background:var(--accent2);opacity:.65;animation:breath .4s ease-in-out infinite}
+  .orb.listening .pulse{opacity:.55;animation:breath .75s ease-in-out infinite}
+  .orb.speaking .pulse{background:var(--accent2);opacity:.65;animation:breath .4s ease-in-out infinite}
   .orb.processing .pulse{opacity:.35;animation:breath 1.1s ease-in-out infinite}
   @keyframes breath{0%,100%{transform:scale(1)}50%{transform:scale(1.65)}}
   .lbl{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;min-height:14px;transition:color .3s}
-  .lbl.listening {color:var(--accent)}
-  .lbl.speaking  {color:var(--accent2)}
+  .lbl.listening{color:var(--accent)}
+  .lbl.speaking{color:var(--accent2)}
   .lbl.processing{color:#eab308}
   .progress-wrap{width:160px;height:2px;background:var(--border);border-radius:2px;overflow:hidden;opacity:0;transition:opacity .3s}
   .progress-wrap.show{opacity:1}
@@ -65,9 +59,9 @@
   .chat{overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:9px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
   .msg{max-width:84%;padding:9px 13px;border-radius:12px;font-size:14px;line-height:1.5;animation:fin .2s ease}
   @keyframes fin{from{opacity:0;transform:translateY(4px)}}
-  .msg.user  {align-self:flex-end;background:var(--surface);border:1px solid var(--border)}
+  .msg.user{align-self:flex-end;background:var(--surface);border:1px solid var(--border)}
   .msg.jarvis{align-self:flex-start;background:linear-gradient(135deg,#0f1f3d,#0d1a30);border:1px solid rgba(59,130,246,.18)}
-  .msg.init  {border-color:rgba(6,182,212,.2);background:linear-gradient(135deg,#0a1f28,#0d1a22)}
+  .msg.init{border-color:rgba(6,182,212,.2);background:linear-gradient(135deg,#0a1f28,#0d1a22)}
   .msg-who{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-bottom:3px}
   .bar{padding:11px 18px;border-top:1px solid var(--border);background:var(--surface);display:flex;gap:9px;align-items:center}
   .txt{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:10px 15px;color:var(--text);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s}
@@ -76,11 +70,14 @@
   .mic{width:42px;height:42px;border-radius:50%;border:none;background:var(--accent);color:#fff;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s,transform .1s}
   .mic:active{transform:scale(.92)}
   .mic.muted{background:var(--muted)}
-  .setup{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 22px;gap:22px;z-index:100}
+
+  /* ── Setup (1ª vez) ── */
+  .setup{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 22px;gap:18px;z-index:100}
   .setup.gone{display:none}
-  .s-title{font-family:'JetBrains Mono',monospace;font-size:26px;color:var(--accent);letter-spacing:.1em}
-  .s-sub{font-size:13px;color:var(--muted);text-align:center;max-width:290px;line-height:1.65}
+  .s-title{font-family:'JetBrains Mono',monospace;font-size:24px;color:var(--accent);letter-spacing:.1em}
+  .s-sub{font-size:13px;color:var(--muted);text-align:center;max-width:300px;line-height:1.65}
   .s-form{width:100%;max-width:350px;display:flex;flex-direction:column;gap:11px}
+  .s-label{font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-bottom:2px}
   .s-form input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 15px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;outline:none;transition:border-color .2s}
   .s-form input:focus{border-color:var(--accent)}
   .s-form input::placeholder{color:var(--muted)}
@@ -88,8 +85,16 @@
   .btn:active{transform:scale(.97)}
   .btn:disabled{opacity:.38;cursor:default}
   .btn-p{background:var(--accent);color:#fff}
-  .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted)}
+  .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted);font-size:12px}
   .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:16px;text-align:center}
+  .s-note{font-size:11px;color:var(--muted);text-align:center;opacity:.6;line-height:1.5}
+
+  /* ── Modal manual ── */
+  .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
+  .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:340px;display:flex;flex-direction:column;gap:12px}
+  .modal-title{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent)}
+  .modal-input{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;outline:none;width:100%}
+
   .glow{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
   .g1{top:-90px;left:-90px;background:rgba(59,130,246,.12)}
   .g2{bottom:-90px;right:-90px;background:rgba(6,182,212,.08)}
@@ -99,33 +104,43 @@
 <div class="glow g1"></div>
 <div class="glow g2"></div>
 
-<!-- ── Setup ── -->
+<!-- ── Setup 1ª vez ── -->
 <div class="setup" id="setup">
   <div class="s-title">J.A.R.V.I.S</div>
-  <div class="s-sub">A iniciar o servidor Jarvis automaticamente...</div>
+  <div class="s-sub">Configuração inicial. Só precisas de fazer isto uma vez.</div>
   <div class="s-form">
-    <input id="iRepo"  placeholder="utilizador/jarvis-voice" autocomplete="off" style="display:none">
-    <input id="iToken" placeholder="GitHub Token (ghp_...)" type="password" autocomplete="off" style="display:none">
-    <button class="btn btn-p" id="btnStart" style="display:none">🚀 Iniciar Jarvis</button>
-    <button class="btn btn-g" id="btnManual" style="font-size:12px">ou liga manualmente a um servidor</button>
+    <div>
+      <div class="s-label">Repositório GitHub</div>
+      <input id="iRepo" placeholder="Aurelhopedro/jarvis-voice" autocomplete="off">
+    </div>
+    <div>
+      <div class="s-label">GitHub Token (com permissão workflow)</div>
+      <input id="iToken" placeholder="ghp_xxxxxxxxxxxx" type="password" autocomplete="off">
+    </div>
+    <button class="btn btn-p" id="btnStart">🚀 Guardar e Iniciar Jarvis</button>
+    <button class="btn btn-g" id="btnManual">ou liga manualmente a um servidor activo</button>
   </div>
-  <div class="s-status" id="sStatus">A conectar...</div>
+  <div class="s-status" id="sStatus"></div>
+  <div class="s-note">As credenciais ficam guardadas no dispositivo.<br>Não são enviadas para nenhum servidor externo.</div>
 </div>
 
-<!-- ── App ── -->
+<!-- ── App principal ── -->
 <div class="app" id="app" style="display:none">
   <header>
     <span class="logo">J.A.R.V.I.S</span>
-    <div class="pill">
-      <div class="dot" id="dot"></div>
-      <span id="stTxt">desligado</span>
+    <div style="display:flex;gap:12px;align-items:center">
+      <button onclick="resetConfig()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚙️</button>
+      <div class="pill">
+        <div class="dot" id="dot"></div>
+        <span id="stTxt">desligado</span>
+      </div>
     </div>
   </header>
   <div class="orb-area">
     <div class="orb-wrap">
       <div class="ring r3" id="r3"></div>
       <div class="ring r2" id="r2"></div>
-      <div class="ring"    id="r1"></div>
+      <div class="ring" id="r1"></div>
       <div class="orb" id="orb"><div class="pulse" id="pulse"></div></div>
     </div>
     <div class="lbl" id="lbl">a aguardar</div>
@@ -136,47 +151,57 @@
   <div class="chat" id="chat"></div>
   <div class="bar">
     <input class="txt" id="txtIn" placeholder="Escreve ou fala..." autocomplete="off">
-    <button class="mic" id="mic" title="Microfone contínuo">🎤</button>
+    <button class="mic" id="mic" title="Microfone">🎤</button>
   </div>
 </div>
 
-<!-- ── Modal manual ── -->
-<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:340px;display:flex;flex-direction:column;gap:12px">
-    <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent)">Ligação manual</div>
-    <input id="iServer" placeholder="https://xxxx.trycloudflare.com" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;outline:none;width:100%">
+<!-- ── Modal ligação manual ── -->
+<div class="modal-bg" id="modal">
+  <div class="modal-box">
+    <div class="modal-title">Ligação manual</div>
+    <input class="modal-input" id="iServer" placeholder="https://xxxx.trycloudflare.com">
     <button class="btn btn-p" id="btnConn">🔗 Ligar</button>
     <button class="btn btn-g" id="btnCancel">Cancelar</button>
   </div>
 </div>
 
 <script>
-// ── Config injectada pelo workflow de APK ─────────────────
-const BC = {
-  repo:  "%%GITHUB_REPO%%",
-  token: "%%GITHUB_TOKEN%%"
-};
-
-// ── Estado ────────────────────────────────────────────────
+// ── Estado global ─────────────────────────────────────────
 let ws = null, mediaStream = null, audioCtx = null;
 let processor = null, micOn = false, isSpeaking = false;
 let repo = '', token = '';
 
+// ── Persistência segura ───────────────────────────────────
+function salvar(r, t) {
+  try { localStorage.setItem('j_repo', r); localStorage.setItem('j_token', t); } catch(e){}
+}
+function carregar() {
+  try {
+    repo  = localStorage.getItem('j_repo')  || '';
+    token = localStorage.getItem('j_token') || '';
+  } catch(e) { repo = ''; token = ''; }
+}
+function resetConfig() {
+  if (!confirm('Limpar configuração e voltar ao setup?')) return;
+  try { localStorage.removeItem('j_repo'); localStorage.removeItem('j_token'); } catch(e){}
+  location.reload();
+}
+
 // ── VAD cliente ───────────────────────────────────────────
 const VAD = {
-  SILENCE_MS: 800, THRESHOLD: 0.012, SR: 16000,
-  buf: [], silenceSamp: 0, active: false, silenceCount: 0,
-  init() { this.silenceSamp = this.SR * this.SILENCE_MS / 1000; },
-  reset() { this.buf = []; this.active = false; this.silenceCount = 0; },
-  process(chunk) {
+  SILENCE_MS:800, THRESHOLD:0.012, SR:16000,
+  buf:[], silenceSamp:0, active:false, silenceCount:0,
+  init(){ this.silenceSamp = this.SR * this.SILENCE_MS / 1000; },
+  reset(){ this.buf=[]; this.active=false; this.silenceCount=0; },
+  process(chunk){
     const rms = Math.sqrt(chunk.reduce((s,v)=>s+v*v,0)/chunk.length);
-    if (rms > this.THRESHOLD) {
-      this.active = true; this.silenceCount = 0; this.buf.push(...chunk);
-    } else if (this.active) {
-      this.silenceCount += chunk.length; this.buf.push(...chunk);
-      if (this.silenceCount >= this.silenceSamp) {
-        const audio = new Float32Array(this.buf);
-        this.buf = []; this.silenceCount = 0; this.active = false;
+    if(rms > this.THRESHOLD){
+      this.active=true; this.silenceCount=0; this.buf.push(...chunk);
+    } else if(this.active){
+      this.silenceCount+=chunk.length; this.buf.push(...chunk);
+      if(this.silenceCount>=this.silenceSamp){
+        const audio=new Float32Array(this.buf);
+        this.buf=[]; this.silenceCount=0; this.active=false;
         return audio;
       }
     }
@@ -184,86 +209,69 @@ const VAD = {
   }
 };
 
-// ── Persistência ──────────────────────────────────────────
-function save() {
-  try { localStorage.setItem('j_repo', repo); localStorage.setItem('j_token', token); } catch(e){}
-}
-function load() {
-  repo  = (BC.repo  !== '%%GITHUB_REPO%%'  ? BC.repo  : '') || (()=>{ try{ return localStorage.getItem('j_repo') }catch(e){return ''} })() || '';
-  token = (BC.token !== '%%GITHUB_TOKEN%%' ? BC.token : '') || (()=>{ try{ return localStorage.getItem('j_token') }catch(e){return ''} })() || '';
-}
-
 // ── UI ────────────────────────────────────────────────────
-function setEstado(e, txt) {
-  document.getElementById('orb').className = `orb ${e}`;
-  const lbl = document.getElementById('lbl');
-  lbl.className = `lbl ${e}`; lbl.textContent = txt;
-  const activo = ['listening','speaking','processing'].includes(e);
-  ['r1','r2','r3'].forEach(id => document.getElementById(id).classList.toggle('on', activo));
-  const dot = document.getElementById('dot');
-  dot.className = 'dot ' + (activo || e==='online' ? 'on' : e==='error' ? 'err' : 'spin');
-  document.getElementById('stTxt').textContent =
-    e==='listening'?'a ouvir': e==='speaking'?'a falar':
-    e==='processing'?'a pensar': e==='online'?'online':
-    e==='error'?'erro': txt;
+function setEstado(e, txt){
+  document.getElementById('orb').className=`orb ${e}`;
+  const lbl=document.getElementById('lbl');
+  lbl.className=`lbl ${e}`; lbl.textContent=txt;
+  const activo=['listening','speaking','processing'].includes(e);
+  ['r1','r2','r3'].forEach(id=>document.getElementById(id).classList.toggle('on',activo));
+  const dot=document.getElementById('dot');
+  dot.className='dot '+(activo||e==='online'?'on':e==='error'?'err':'spin');
+  document.getElementById('stTxt').textContent=
+    e==='listening'?'a ouvir':e==='speaking'?'a falar':
+    e==='processing'?'a pensar':e==='online'?'online':
+    e==='error'?'erro':txt;
 }
 
-function addMsg(txt, quem, init=false) {
-  const c = document.getElementById('chat');
-  const d = document.createElement('div');
-  d.className = `msg ${quem}${init?' init':''}`;
-  const w = document.createElement('div');
-  w.className = 'msg-who';
-  w.textContent = quem==='user' ? 'Tu' : (init ? '⚡ Jarvis' : 'Jarvis');
+function addMsg(txt,quem,init=false){
+  const c=document.getElementById('chat');
+  const d=document.createElement('div');
+  d.className=`msg ${quem}${init?' init':''}`;
+  const w=document.createElement('div');
+  w.className='msg-who';
+  w.textContent=quem==='user'?'Tu':(init?'⚡ Jarvis':'Jarvis');
   d.appendChild(w); d.appendChild(document.createTextNode(txt));
-  c.appendChild(d); c.scrollTop = c.scrollHeight;
+  c.appendChild(d); c.scrollTop=c.scrollHeight;
 }
 
-function sStatus(txt) { document.getElementById('sStatus').textContent = txt; }
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sStatus(txt){ document.getElementById('sStatus').textContent=txt; }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
 // ── Polling — descobre URL cloudflare nos logs ────────────
-async function descobrirUrl() {
-  const progWrap = document.getElementById('progWrap');
-  const progBar  = document.getElementById('progBar');
+async function descobrirUrl(){
+  const progWrap=document.getElementById('progWrap');
+  const progBar=document.getElementById('progBar');
   progWrap.classList.add('show');
-
-  const MAX = 30; // 30 × 10s = 5 minutos
-  for (let i = 1; i <= MAX; i++) {
-    progBar.style.width = Math.round((i/MAX)*100) + '%';
+  const MAX=30;
+  for(let i=1;i<=MAX;i++){
+    progBar.style.width=Math.round((i/MAX)*100)+'%';
     sStatus(`A aguardar servidor... (${i}/${MAX})`);
-    try {
-      // Último run do workflow jarvis.yml
-      const runsRes = await fetch(
+    try{
+      const runsRes=await fetch(
         `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/runs?per_page=1`,
-        { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } }
+        {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
       );
-      const runsData = await runsRes.json();
-      const run = runsData.workflow_runs?.[0];
-      if (!run) { await sleep(10000); continue; }
+      const runsData=await runsRes.json();
+      const run=runsData.workflow_runs?.[0];
+      if(!run){await sleep(10000);continue;}
 
-      const jobsRes = await fetch(run.jobs_url,
-        { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } }
+      const jobsRes=await fetch(run.jobs_url,
+        {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
       );
-      const jobsData = await jobsRes.json();
-      const job = jobsData.jobs?.find(j => j.status === 'in_progress' || j.status === 'completed');
-      if (!job) { await sleep(10000); continue; }
+      const jobsData=await jobsRes.json();
+      const job=jobsData.jobs?.find(j=>j.status==='in_progress'||j.status==='completed');
+      if(!job){await sleep(10000);continue;}
 
-      const logsRes = await fetch(
+      const logsRes=await fetch(
         `https://api.github.com/repos/${repo}/actions/jobs/${job.id}/logs`,
-        { headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' } }
+        {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
       );
-      const logsText = await logsRes.text();
-
-      // Padrão Cloudflare Tunnel
-      const match = logsText.match(/JARVIS_URL=(https:\/\/[a-z0-9\-]+\.trycloudflare\.com)/i)
-                 || logsText.match(/(https:\/\/[a-z0-9\-]+\.trycloudflare\.com)/i);
-      if (match) {
-        progWrap.classList.remove('show');
-        return match[1];
-      }
-    } catch(e) { console.warn('Polling erro:', e); }
+      const logsText=await logsRes.text();
+      const match=logsText.match(/JARVIS_URL=(https:\/\/[a-z0-9\-]+\.trycloudflare\.com)/i)
+                ||logsText.match(/(https:\/\/[a-z0-9\-]+\.trycloudflare\.com)/i);
+      if(match){ progWrap.classList.remove('show'); return match[1]; }
+    }catch(e){console.warn('Polling erro:',e);}
     await sleep(10000);
   }
   progWrap.classList.remove('show');
@@ -271,173 +279,160 @@ async function descobrirUrl() {
 }
 
 // ── WebSocket ─────────────────────────────────────────────
-function ligar(url) {
-  const wsUrl = url.replace(/^https?/, 'wss').replace(/\/+$/, '') + '/ws';
-  setEstado('loading', 'a ligar...');
-  ws = new WebSocket(wsUrl);
-
-  ws.onopen = () => {
-    setEstado('listening', 'a ouvir...');
+function ligar(url){
+  const wsUrl=url.replace(/^https?/,'wss').replace(/\/+$/,'')+'/ws';
+  setEstado('loading','a ligar...');
+  ws=new WebSocket(wsUrl);
+  ws.onopen=()=>{
+    setEstado('listening','a ouvir...');
     document.getElementById('setup').classList.add('gone');
-    document.getElementById('app').style.display = '';
+    document.getElementById('app').style.display='';
     VAD.init(); iniciarMic();
-    setInterval(() => ws?.readyState === 1 && ws.send(JSON.stringify({tipo:'ping'})), 25000);
+    setInterval(()=>ws?.readyState===1&&ws.send(JSON.stringify({tipo:'ping'})),25000);
   };
-
-  ws.onmessage = async (e) => {
-    const d = JSON.parse(e.data);
-    if (d.tipo === 'audio') {
-      isSpeaking = true; setEstado('speaking', 'a falar...');
-      addMsg(d.texto, 'jarvis', d.iniciativa);
+  ws.onmessage=async(e)=>{
+    const d=JSON.parse(e.data);
+    if(d.tipo==='audio'){
+      isSpeaking=true; setEstado('speaking','a falar...');
+      addMsg(d.texto,'jarvis',d.iniciativa);
       await tocarAudio(d.dados);
-      isSpeaking = false; setEstado('listening', 'a ouvir...');
-    } else if (d.tipo === 'transcricao') {
-      addMsg(d.texto, 'user');
-    } else if (d.tipo === 'estado') {
-      if (d.estado === 'processando') setEstado('processing', 'a pensar...');
-      else if (d.estado === 'ouvindo') setEstado('listening', 'a ouvir...');
+      isSpeaking=false; setEstado('listening','a ouvir...');
+    } else if(d.tipo==='transcricao'){
+      addMsg(d.texto,'user');
+    } else if(d.tipo==='estado'){
+      if(d.estado==='processando') setEstado('processing','a pensar...');
+      else if(d.estado==='ouvindo') setEstado('listening','a ouvir...');
     }
   };
-
-  ws.onerror = () => setEstado('error', 'erro de ligação');
-  ws.onclose = () => { setEstado('', 'desligado'); ws = null; };
+  ws.onerror=()=>setEstado('error','erro de ligação');
+  ws.onclose=()=>{ setEstado('','desligado'); ws=null; };
 }
 
 // ── Áudio ─────────────────────────────────────────────────
-async function tocarAudio(b64) {
-  if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  const bytes = atob(b64), buf = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
-  const decoded = await audioCtx.decodeAudioData(buf.buffer);
-  const src = audioCtx.createBufferSource();
-  src.buffer = decoded; src.connect(audioCtx.destination); src.start();
-  return new Promise(r => src.onended = r);
+async function tocarAudio(b64){
+  if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  const bytes=atob(b64),buf=new Uint8Array(bytes.length);
+  for(let i=0;i<bytes.length;i++) buf[i]=bytes.charCodeAt(i);
+  const decoded=await audioCtx.decodeAudioData(buf.buffer);
+  const src=audioCtx.createBufferSource();
+  src.buffer=decoded; src.connect(audioCtx.destination); src.start();
+  return new Promise(r=>src.onended=r);
 }
 
 // ── Microfone ─────────────────────────────────────────────
-async function iniciarMic() {
-  if (micOn) return;
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+async function iniciarMic(){
+  if(micOn) return;
+  try{
+    if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') await audioCtx.resume();
+    mediaStream=await navigator.mediaDevices.getUserMedia({
+      audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true}
     });
-    const src = audioCtx.createMediaStreamSource(mediaStream);
-    processor  = audioCtx.createScriptProcessor(4096, 1, 1);
-    processor.onaudioprocess = (ev) => {
-      if (!ws || ws.readyState !== 1 || isSpeaking) return;
-      const chunk = ev.inputBuffer.getChannelData(0);
-      const result = VAD.process(chunk);
-      if (result) {
-        const b64 = btoa(String.fromCharCode(...new Uint8Array(result.buffer)));
-        ws.send(JSON.stringify({ tipo: 'audio_chunk', dados: b64 }));
+    const src=audioCtx.createMediaStreamSource(mediaStream);
+    processor=audioCtx.createScriptProcessor(4096,1,1);
+    processor.onaudioprocess=(ev)=>{
+      if(!ws||ws.readyState!==1||isSpeaking) return;
+      const chunk=ev.inputBuffer.getChannelData(0);
+      const result=VAD.process(chunk);
+      if(result){
+        const b64=btoa(String.fromCharCode(...new Uint8Array(result.buffer)));
+        ws.send(JSON.stringify({tipo:'audio_chunk',dados:b64}));
       }
     };
     src.connect(processor); processor.connect(audioCtx.destination);
-    micOn = true; document.getElementById('mic').textContent = '🎤';
-  } catch(e) {
-    console.error('Mic erro:', e);
+    micOn=true; document.getElementById('mic').textContent='🎤';
+  }catch(e){
+    console.error('Mic erro:',e);
     document.getElementById('mic').classList.add('muted');
-    document.getElementById('mic').textContent = '🚫';
+    document.getElementById('mic').textContent='🚫';
   }
 }
 
-function pararMic() {
-  processor?.disconnect(); mediaStream?.getTracks().forEach(t => t.stop());
-  micOn = false; document.getElementById('mic').textContent = '🎤';
+function pararMic(){
+  processor?.disconnect(); mediaStream?.getTracks().forEach(t=>t.stop());
+  micOn=false; document.getElementById('mic').textContent='🎤';
 }
 
-function enviarTexto(msg) {
-  if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ tipo: 'texto', mensagem: msg }));
-  addMsg(msg, 'user'); setEstado('processing', 'a pensar...');
+function enviarTexto(msg){
+  if(!ws||ws.readyState!==1) return;
+  ws.send(JSON.stringify({tipo:'texto',mensagem:msg}));
+  addMsg(msg,'user'); setEstado('processing','a pensar...');
 }
 
-// ── Arranque automático ───────────────────────────────────
-async function arrancarAutomatico() {
-  load();
-
-  // Se não há repo/token configurados, mostra formulário manual
-  if (!repo || !token) {
-    document.getElementById('iRepo').style.display  = '';
-    document.getElementById('iToken').style.display = '';
-    document.getElementById('btnStart').style.display = '';
-    document.getElementById('sStatus').textContent = 'Introduz as credenciais para começar.';
-
-    document.getElementById('btnStart').addEventListener('click', async () => {
-      repo  = document.getElementById('iRepo').value.trim();
-      token = document.getElementById('iToken').value.trim();
-      if (!repo || !token) return;
-      save();
-      await iniciarWorkflowEConectar();
-    });
-    return;
-  }
-
-  // Repo/token existem — arranca directo
-  await iniciarWorkflowEConectar();
-}
-
-async function iniciarWorkflowEConectar() {
-  const btn = document.getElementById('btnStart');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ A disparar...'; }
-  sStatus('A iniciar servidor Jarvis...');
-
-  try {
-    const r = await fetch(
+// ── Iniciar workflow + polling ────────────────────────────
+async function iniciarWorkflowEConectar(){
+  const btn=document.getElementById('btnStart');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ A iniciar...'; }
+  sStatus('A disparar servidor Jarvis...');
+  try{
+    const r=await fetch(
       `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/dispatches`,
-      { method: 'POST',
-        headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ref: 'main', inputs: { duracao: '180' } }) }
+      {method:'POST',
+       headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json','Content-Type':'application/json'},
+       body:JSON.stringify({ref:'main',inputs:{duracao:'180'}})}
     );
-
-    if (r.status === 204) {
-      sStatus('✅ Workflow iniciado! A aguardar servidor...');
-      await sleep(30000); // Aguarda dependências instalarem
-      const url = await descobrirUrl();
-      if (url) {
-        sStatus('✅ Servidor encontrado! A ligar...');
+    if(r.status===204){
+      sStatus('✅ Servidor iniciado! A aguardar arranque (~2 min)...');
+      await sleep(30000);
+      const url=await descobrirUrl();
+      if(url){
+        sStatus('✅ Ligado! A abrir Jarvis...');
         ligar(url);
       } else {
         sStatus('⚠️ Tempo esgotado. Liga manualmente.');
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 Tentar novamente'; }
+        if(btn){ btn.disabled=false; btn.textContent='🔄 Tentar novamente'; }
       }
     } else {
-      const err = await r.json().catch(()=>({}));
-      sStatus('❌ Erro: ' + (err.message || r.status));
-      if (btn) { btn.disabled = false; btn.textContent = '🚀 Iniciar Jarvis'; }
+      const err=await r.json().catch(()=>({}));
+      sStatus('❌ Erro GitHub: '+(err.message||r.status));
+      if(btn){ btn.disabled=false; btn.textContent='🚀 Guardar e Iniciar Jarvis'; }
     }
-  } catch(e) {
-    sStatus('❌ Falha de rede. Verifica a ligação.');
-    if (btn) { btn.disabled = false; btn.textContent = '🚀 Iniciar Jarvis'; }
+  }catch(e){
+    sStatus('❌ Falha de rede.');
+    if(btn){ btn.disabled=false; btn.textContent='🚀 Guardar e Iniciar Jarvis'; }
   }
 }
 
 // ── Listeners ─────────────────────────────────────────────
-document.getElementById('btnManual').addEventListener('click', () => {
-  document.getElementById('modal').style.display = 'flex';
+document.getElementById('btnStart').addEventListener('click',async()=>{
+  repo=document.getElementById('iRepo').value.trim();
+  token=document.getElementById('iToken').value.trim();
+  if(!repo||!token){ sStatus('❌ Preenche os dois campos.'); return; }
+  salvar(repo,token);
+  await iniciarWorkflowEConectar();
 });
-document.getElementById('btnCancel').addEventListener('click', () => {
-  document.getElementById('modal').style.display = 'none';
+
+document.getElementById('btnManual').addEventListener('click',()=>{
+  document.getElementById('modal').style.display='flex';
 });
-document.getElementById('btnConn').addEventListener('click', () => {
-  const url = document.getElementById('iServer').value.trim();
-  if (url) { document.getElementById('modal').style.display = 'none'; ligar(url); }
+document.getElementById('btnCancel').addEventListener('click',()=>{
+  document.getElementById('modal').style.display='none';
 });
-document.getElementById('txtIn').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    const msg = e.target.value.trim();
-    if (msg) { enviarTexto(msg); e.target.value = ''; }
+document.getElementById('btnConn').addEventListener('click',()=>{
+  const url=document.getElementById('iServer').value.trim();
+  if(url){ document.getElementById('modal').style.display='none'; ligar(url); }
+});
+document.getElementById('txtIn').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    const msg=e.target.value.trim();
+    if(msg){ enviarTexto(msg); e.target.value=''; }
   }
 });
-document.getElementById('mic').addEventListener('click', () => {
-  if (micOn) pararMic(); else iniciarMic();
+document.getElementById('mic').addEventListener('click',()=>{
+  if(micOn) pararMic(); else iniciarMic();
 });
 
 // ── Init ──────────────────────────────────────────────────
 VAD.init();
-arrancarAutomatico();
+carregar();
+
+if(repo && token){
+  // Já configurado — arranca directo sem mostrar setup
+  iniciarWorkflowEConectar();
+} else {
+  // 1ª vez — mostra setup
+  document.getElementById('setup').classList.remove('gone');
+}
 </script>
 </body>
 </html>
