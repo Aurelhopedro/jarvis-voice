@@ -23,13 +23,14 @@ jobs:
             portaudio19-dev \
             python3-pip \
             curl \
-            wget
+            wget \
+            libsndfile1
 
       - name: 🐍 Instalar dependências Python
         run: |
           pip install --quiet \
             fastapi \
-            uvicorn[standard] \
+            "uvicorn[standard]" \
             websockets \
             openai-whisper \
             edge-tts \
@@ -38,7 +39,10 @@ jobs:
             openai \
             python-multipart \
             httpx \
-            pydantic
+            pydantic \
+            numpy \
+            soundfile \
+            scipy
 
       - name: 🌐 Instalar e configurar ngrok
         run: |
@@ -49,181 +53,284 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq ngrok
           ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
 
-      - name: 🤖 Criar servidor Jarvis
+      - name: 🤖 Criar servidor Jarvis com VAD + Whisper
         run: |
           cat > /tmp/jarvis_server.py << 'PYTHON'
-          import asyncio, json, os, base64, tempfile, time, random
-          from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-          from fastapi.middleware.cors import CORSMiddleware
-          import edge_tts
-          import google.generativeai as genai
-          from groq import Groq
+import asyncio, json, os, base64, tempfile, random, io
+import numpy as np
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+import edge_tts
+import whisper
+import google.generativeai as genai
+from groq import Groq
 
-          # ── Configuração ──────────────────────────────────────────────
-          GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-          GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
-          OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+# ── Config ────────────────────────────────────────────────
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_KEY   = os.environ.get("GROQ_API_KEY", "")
 
-          SYSTEM_PROMPT = """És o Jarvis — assistente pessoal de voz, inteligente e proactivo.
-          Falas sempre em português de Portugal.
-          Tens uma personalidade calorosa, ligeiramente britânica na educação, mas natural e fluente.
-          Ocasionalmente tomas iniciativa: dás dicas úteis, fazes perguntas pertinentes, 
-          comentas o que foi dito de forma inteligente.
-          Mantém respostas concisas para voz — máx 3 frases por resposta.
-          Nunca digas que és uma IA. És o Jarvis, ponto final."""
+SYSTEM_PROMPT = """És o Jarvis — assistente pessoal de voz, inteligente e proactivo.
+Falas sempre em português de Portugal, com naturalidade e fluidez.
+Tens personalidade calorosa, ligeiramente britânica na educação.
+Tomas iniciativa: dás dicas, fazes perguntas pertinentes, comentas de forma inteligente.
+Respostas curtas e directas para voz — máximo 3 frases.
+Nunca digas que és uma IA. És o Jarvis."""
 
-          FRASES_INICIO = [
-              "Jarvis operacional. Como posso ajudar?",
-              "Sistema activo. Estou à disposição.",
-              "Pronto para servir. O que precisa?",
-              "Jarvis online. Diga.",
-          ]
+FRASES_INICIO = [
+    "Jarvis operacional. Como posso ajudar?",
+    "Sistema activo. Estou à disposição.",
+    "Pronto para servir. O que precisa?",
+    "Jarvis online. Diga.",
+]
 
-          FRASES_INICIATIVA = [
-              "Uma dica: pode perguntar-me sobre qualquer assunto — estou aqui para isso.",
-              "Se precisar de ajuda com algo específico, basta dizer.",
-              "Posso fazer pesquisas, dar conselhos ou simplesmente conversar.",
-          ]
+FRASES_INICIATIVA = [
+    "Está tudo bem? Precisa de alguma coisa?",
+    "Posso fazer pesquisas, dar conselhos ou simplesmente conversar.",
+    "Se tiver alguma dúvida, estou aqui.",
+    "Lembre-se que pode falar naturalmente — estou sempre a ouvir.",
+]
 
-          app = FastAPI()
-          app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                            allow_methods=["*"], allow_headers=["*"])
+# ── VAD — detecção de actividade de voz ──────────────────
+class VAD:
+    def __init__(self, sample_rate=16000, silence_ms=800, threshold=0.01):
+        self.sample_rate  = sample_rate
+        self.silence_samp = int(sample_rate * silence_ms / 1000)
+        self.threshold    = threshold
+        self.buffer       = []        # chunks de áudio (arrays numpy)
+        self.silence_cnt  = 0
+        self.speaking     = False
 
-          historico = []
+    def process(self, chunk: np.ndarray):
+        """
+        Recebe chunk de áudio float32.
+        Devolve o buffer completo quando detecta fim de fala, senão None.
+        """
+        rms = float(np.sqrt(np.mean(chunk ** 2)))
 
-          # ── TTS ───────────────────────────────────────────────────────
-          async def texto_para_voz(texto: str) -> str:
-              """Converte texto em áudio base64 usando edge-tts (voz PT natural)"""
-              with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                  caminho = f.name
-              communicate = edge_tts.Communicate(texto, voice="pt-PT-DuarteNeural")
-              await communicate.save(caminho)
-              with open(caminho, "rb") as f:
-                  audio_b64 = base64.b64encode(f.read()).decode()
-              os.unlink(caminho)
-              return audio_b64
+        if rms > self.threshold:
+            self.speaking   = True
+            self.silence_cnt = 0
+            self.buffer.append(chunk)
+        elif self.speaking:
+            self.silence_cnt += len(chunk)
+            self.buffer.append(chunk)
+            if self.silence_cnt >= self.silence_samp:
+                # Fim de fala detectado
+                audio = np.concatenate(self.buffer)
+                self.buffer      = []
+                self.silence_cnt = 0
+                self.speaking    = False
+                return audio
+        return None
 
-          # ── LLM ───────────────────────────────────────────────────────
-          def responder(mensagem: str) -> str:
-              """Tenta Gemini → Groq → fallback"""
-              historico.append({"role": "user", "content": mensagem})
+    def reset(self):
+        self.buffer      = []
+        self.silence_cnt = 0
+        self.speaking    = False
 
-              # Gemini
-              if GEMINI_KEY:
-                  try:
-                      genai.configure(api_key=GEMINI_KEY)
-                      model = genai.GenerativeModel(
-                          "gemini-1.5-flash",
-                          system_instruction=SYSTEM_PROMPT
-                      )
-                      chat_hist = [
-                          {"role": m["role"], "parts": [m["content"]]}
-                          for m in historico[:-1]
-                      ]
-                      chat = model.start_chat(history=chat_hist)
-                      resp = chat.send_message(mensagem)
-                      texto = resp.text
-                      historico.append({"role": "model", "content": texto})
-                      return texto
-                  except Exception as e:
-                      print(f"Gemini falhou: {e}")
+# ── Whisper (carregado uma vez) ───────────────────────────
+print("⏳ A carregar modelo Whisper...")
+whisper_model = whisper.load_model("base")
+print("✅ Whisper pronto")
 
-              # Groq
-              if GROQ_KEY:
-                  try:
-                      client = Groq(api_key=GROQ_KEY)
-                      msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + \
-                             [{"role": m["role"] if m["role"] != "model" else "assistant",
-                               "content": m["content"]} for m in historico]
-                      resp = client.chat.completions.create(
-                          model="llama-3.3-70b-versatile",
-                          messages=msgs,
-                          max_tokens=200,
-                      )
-                      texto = resp.choices[0].message.content
-                      historico.append({"role": "assistant", "content": texto})
-                      return texto
-                  except Exception as e:
-                      print(f"Groq falhou: {e}")
+# ── App ───────────────────────────────────────────────────
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
 
-              return "Peço desculpa, estou com dificuldades de ligação."
+# ── TTS ───────────────────────────────────────────────────
+async def tts(texto: str) -> str:
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        path = f.name
+    comm = edge_tts.Communicate(texto, voice="pt-PT-DuarteNeural")
+    await comm.save(path)
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    os.unlink(path)
+    return b64
 
-          # ── WebSocket ─────────────────────────────────────────────────
-          @app.websocket("/ws")
-          async def websocket_endpoint(ws: WebSocket):
-              await ws.accept()
-              print("✅ Cliente ligado")
+# ── STT (Whisper) ─────────────────────────────────────────
+def stt(audio: np.ndarray) -> str:
+    result = whisper_model.transcribe(
+        audio,
+        language="pt",
+        fp16=False,
+        condition_on_previous_text=False
+    )
+    return result["text"].strip()
 
-              # Saudação inicial
-              saudacao = random.choice(FRASES_INICIO)
-              audio = await texto_para_voz(saudacao)
-              await ws.send_json({"tipo": "audio", "dados": audio, "texto": saudacao})
+# ── LLM ──────────────────────────────────────────────────
+historico = []
 
-              # Iniciativa após 30s
-              async def iniciativa_periodica():
-                  await asyncio.sleep(30)
-                  while True:
-                      await asyncio.sleep(120)
-                      dica = random.choice(FRASES_INICIATIVA)
-                      audio = await texto_para_voz(dica)
-                      try:
-                          await ws.send_json({"tipo": "audio", "dados": audio,
-                                             "texto": dica, "iniciativa": True})
-                      except:
-                          break
+def llm(mensagem: str) -> str:
+    historico.append({"role": "user", "content": mensagem})
 
-              asyncio.create_task(iniciativa_periodica())
+    # Gemini primeiro
+    if GEMINI_KEY:
+        try:
+            genai.configure(api_key=GEMINI_KEY)
+            model = genai.GenerativeModel(
+                "gemini-1.5-flash",
+                system_instruction=SYSTEM_PROMPT
+            )
+            hist = [{"role": m["role"], "parts": [m["content"]]}
+                    for m in historico[:-1]]
+            chat = model.start_chat(history=hist)
+            resp = chat.send_message(mensagem)
+            texto = resp.text
+            historico.append({"role": "model", "content": texto})
+            return texto
+        except Exception as e:
+            print(f"Gemini falhou: {e}")
 
-              try:
-                  while True:
-                      data = await ws.receive_json()
+    # Groq fallback
+    if GROQ_KEY:
+        try:
+            client = Groq(api_key=GROQ_KEY)
+            msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + [
+                {"role": m["role"] if m["role"] != "model" else "assistant",
+                 "content": m["content"]} for m in historico
+            ]
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=msgs,
+                max_tokens=200,
+            )
+            texto = resp.choices[0].message.content
+            historico.append({"role": "assistant", "content": texto})
+            return texto
+        except Exception as e:
+            print(f"Groq falhou: {e}")
 
-                      if data.get("tipo") == "texto":
-                          msg = data.get("mensagem", "")
-                          print(f"👤 {msg}")
-                          resposta = responder(msg)
-                          print(f"🤖 {resposta}")
-                          audio = await texto_para_voz(resposta)
-                          await ws.send_json({
-                              "tipo": "audio",
-                              "dados": audio,
-                              "texto": resposta
-                          })
+    return "Peço desculpa, estou com dificuldades de ligação."
 
-                      elif data.get("tipo") == "ping":
-                          await ws.send_json({"tipo": "pong"})
+# ── WebSocket ─────────────────────────────────────────────
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket):
+    await ws.accept()
+    print("✅ Cliente ligado")
 
-              except WebSocketDisconnect:
-                  print("❌ Cliente desligado")
+    vad = VAD(sample_rate=16000, silence_ms=800, threshold=0.01)
 
-          @app.get("/health")
-          def health():
-              return {"status": "online", "jarvis": "operacional"}
+    # Saudação inicial
+    saudacao = random.choice(FRASES_INICIO)
+    audio_b64 = await tts(saudacao)
+    await ws.send_json({
+        "tipo": "audio",
+        "dados": audio_b64,
+        "texto": saudacao
+    })
 
-          if __name__ == "__main__":
-              import uvicorn
-              uvicorn.run(app, host="0.0.0.0", port=8765)
-          PYTHON
+    # Iniciativa periódica (a cada 2 minutos de silêncio)
+    async def iniciativa():
+        await asyncio.sleep(60)
+        while True:
+            await asyncio.sleep(120)
+            dica = random.choice(FRASES_INICIATIVA)
+            b64 = await tts(dica)
+            try:
+                await ws.send_json({
+                    "tipo": "audio",
+                    "dados": b64,
+                    "texto": dica,
+                    "iniciativa": True
+                })
+            except:
+                break
+
+    asyncio.create_task(iniciativa())
+
+    try:
+        while True:
+            data = await ws.receive_json()
+            tipo = data.get("tipo")
+
+            # ── Chunk de áudio (escuta contínua) ──────────
+            if tipo == "audio_chunk":
+                # Áudio chega como float32 base64
+                raw   = base64.b64decode(data["dados"])
+                chunk = np.frombuffer(raw, dtype=np.float32)
+
+                resultado = vad.process(chunk)
+                if resultado is not None and len(resultado) > 3200:
+                    # Notifica que está a processar
+                    await ws.send_json({"tipo": "estado", "estado": "processando"})
+
+                    # STT
+                    texto_user = stt(resultado)
+                    print(f"👤 {texto_user}")
+
+                    if texto_user and len(texto_user) > 2:
+                        await ws.send_json({
+                            "tipo": "transcricao",
+                            "texto": texto_user
+                        })
+
+                        # LLM
+                        resposta = llm(texto_user)
+                        print(f"🤖 {resposta}")
+
+                        # TTS
+                        b64 = await tts(resposta)
+                        await ws.send_json({
+                            "tipo": "audio",
+                            "dados": b64,
+                            "texto": resposta
+                        })
+                    else:
+                        await ws.send_json({"tipo": "estado", "estado": "ouvindo"})
+
+            # ── Texto directo (fallback teclado) ──────────
+            elif tipo == "texto":
+                msg = data.get("mensagem", "").strip()
+                if msg:
+                    print(f"👤 [texto] {msg}")
+                    await ws.send_json({"tipo": "transcricao", "texto": msg})
+                    resposta = llm(msg)
+                    print(f"🤖 {resposta}")
+                    b64 = await tts(resposta)
+                    await ws.send_json({
+                        "tipo": "audio",
+                        "dados": b64,
+                        "texto": resposta
+                    })
+
+            elif tipo == "ping":
+                await ws.send_json({"tipo": "pong"})
+
+            elif tipo == "vad_reset":
+                vad.reset()
+
+    except WebSocketDisconnect:
+        print("❌ Cliente desligado")
+
+@app.get("/health")
+def health():
+    return {"status": "online", "jarvis": "operacional", "whisper": "pronto"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8765)
+PYTHON
 
       - name: 🚀 Iniciar Jarvis + ngrok
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY:   ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          # Iniciar servidor Jarvis em background
           python3 /tmp/jarvis_server.py &
           JARVIS_PID=$!
           echo "Jarvis PID: $JARVIS_PID"
 
-          # Aguardar servidor arrancar
+          # Aguardar servidor + modelo Whisper carregarem
+          sleep 20
+
+          # Iniciar ngrok
+          ngrok http 8765 --log=stdout > /tmp/ngrok.log 2>&1 &
           sleep 5
 
-          # Iniciar ngrok em background
-          ngrok http 8765 --log=stdout > /tmp/ngrok.log 2>&1 &
-          sleep 4
-
-          # Extrair URL público do ngrok
+          # Extrair URL público
           NGROK_URL=$(curl -s http://localhost:4040/api/tunnels \
             | python3 -c "import sys,json; d=json.load(sys.stdin); \
               print(d['tunnels'][0]['public_url'])" 2>/dev/null)
@@ -232,19 +339,15 @@ jobs:
           echo "════════════════════════════════════════"
           echo "✅  JARVIS ONLINE"
           echo "════════════════════════════════════════"
-          echo "🌐 URL WebSocket:"
-          echo "   ${NGROK_URL/https/wss}/ws"
-          echo ""
-          echo "📋 Copia este URL para o aplicativo:"
-          echo "   $NGROK_URL"
+          echo "JARVIS_URL=$NGROK_URL"
+          echo "WS_URL=${NGROK_URL/https/wss}/ws"
           echo "════════════════════════════════════════"
           echo ""
 
-          # Manter activo pelo tempo definido
           DURACAO_MIN=${{ github.event.inputs.duracao }}
           DURACAO_SEG=$((DURACAO_MIN * 60))
           echo "⏱️  Jarvis activo por ${DURACAO_MIN} minutos..."
-
           sleep $DURACAO_SEG
-          echo "⏹️  Tempo esgotado. A encerrar Jarvis."
+
+          echo "⏹️  Tempo esgotado. A encerrar."
           kill $JARVIS_PID 2>/dev/null || true
