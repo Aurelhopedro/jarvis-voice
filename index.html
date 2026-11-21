@@ -70,8 +70,6 @@
   .mic{width:42px;height:42px;border-radius:50%;border:none;background:var(--accent);color:#fff;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s,transform .1s}
   .mic:active{transform:scale(.92)}
   .mic.muted{background:var(--muted)}
-
-  /* ── Setup (1ª vez) ── */
   .setup{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 22px;gap:18px;z-index:100}
   .setup.gone{display:none}
   .s-title{font-family:'JetBrains Mono',monospace;font-size:24px;color:var(--accent);letter-spacing:.1em}
@@ -86,15 +84,12 @@
   .btn:disabled{opacity:.38;cursor:default}
   .btn-p{background:var(--accent);color:#fff}
   .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted);font-size:12px}
-  .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:16px;text-align:center}
+  .s-status{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;min-height:16px;text-align:center;line-height:1.6}
   .s-note{font-size:11px;color:var(--muted);text-align:center;opacity:.6;line-height:1.5}
-
-  /* ── Modal manual ── */
   .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
   .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;width:90%;max-width:340px;display:flex;flex-direction:column;gap:12px}
   .modal-title{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent)}
   .modal-input{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;outline:none;width:100%}
-
   .glow{position:fixed;width:380px;height:380px;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
   .g1{top:-90px;left:-90px;background:rgba(59,130,246,.12)}
   .g2{bottom:-90px;right:-90px;background:rgba(6,182,212,.08)}
@@ -104,7 +99,6 @@
 <div class="glow g1"></div>
 <div class="glow g2"></div>
 
-<!-- ── Setup 1ª vez ── -->
 <div class="setup" id="setup">
   <div class="s-title">J.A.R.V.I.S</div>
   <div class="s-sub">Configuração inicial. Só precisas de fazer isto uma vez.</div>
@@ -124,7 +118,6 @@
   <div class="s-note">As credenciais ficam guardadas no dispositivo.<br>Não são enviadas para nenhum servidor externo.</div>
 </div>
 
-<!-- ── App principal ── -->
 <div class="app" id="app" style="display:none">
   <header>
     <span class="logo">J.A.R.V.I.S</span>
@@ -155,7 +148,6 @@
   </div>
 </div>
 
-<!-- ── Modal ligação manual ── -->
 <div class="modal-bg" id="modal">
   <div class="modal-box">
     <div class="modal-title">Ligação manual</div>
@@ -166,12 +158,11 @@
 </div>
 
 <script>
-// ── Estado global ─────────────────────────────────────────
 let ws = null, mediaStream = null, audioCtx = null;
 let processor = null, micOn = false, isSpeaking = false;
 let repo = '', token = '';
+let runId = null; // guardar o run ID do workflow disparado
 
-// ── Persistência segura ───────────────────────────────────
 function salvar(r, t) {
   try { localStorage.setItem('j_repo', r); localStorage.setItem('j_token', t); } catch(e){}
 }
@@ -187,7 +178,6 @@ function resetConfig() {
   location.reload();
 }
 
-// ── VAD cliente ───────────────────────────────────────────
 const VAD = {
   SILENCE_MS:800, THRESHOLD:0.012, SR:16000,
   buf:[], silenceSamp:0, active:false, silenceCount:0,
@@ -209,7 +199,6 @@ const VAD = {
   }
 };
 
-// ── UI ────────────────────────────────────────────────────
 function setEstado(e, txt){
   document.getElementById('orb').className=`orb ${e}`;
   const lbl=document.getElementById('lbl');
@@ -238,60 +227,90 @@ function addMsg(txt,quem,init=false){
 function sStatus(txt){ document.getElementById('sStatus').textContent=txt; }
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-// ── Polling — descobre URL cloudflare nos logs ────────────
-async function descobrirUrl(){
+// Disparar workflow e obter o run ID
+async function dispararWorkflow(){
+  const antes = Date.now();
+  const r = await fetch(
+    `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/dispatches`,
+    {method:'POST',
+     headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json','Content-Type':'application/json'},
+     body:JSON.stringify({ref:'main',inputs:{duracao:'180'}})}
+  );
+  if(r.status !== 204) {
+    const err = await r.json().catch(()=>({}));
+    throw new Error(err.message || r.status);
+  }
+  // Aguardar 5s e encontrar o run criado depois de "antes"
+  await sleep(5000);
+  for(let i=0; i<10; i++){
+    const res = await fetch(
+      `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/runs?per_page=5`,
+      {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
+    );
+    const data = await res.json();
+    const run = (data.workflow_runs||[]).find(r => new Date(r.created_at).getTime() >= antes - 10000);
+    if(run){ runId = run.id; return run.id; }
+    await sleep(3000);
+  }
+  throw new Error('Não encontrei o run criado');
+}
+
+// Polling — busca logs do run específico
+async function descobrirUrl(rid){
   const progWrap=document.getElementById('progWrap');
   const progBar=document.getElementById('progBar');
   progWrap.classList.add('show');
-  const MAX=30;
-  for(let i=1;i<=MAX;i++){
-    progBar.style.width=Math.round((i/MAX)*100)+'%';
-    sStatus(`A aguardar servidor... (${i}/${MAX})`);
+  const MAX = 40; // 40 tentativas × 15s = 10 minutos
+  for(let i=1; i<=MAX; i++){
+    progBar.style.width = Math.round((i/MAX)*100)+'%';
+    const minutos = Math.round((MAX-i)*15/60);
+    sStatus(`⏳ A aguardar Whisper carregar... (~${minutos} min restantes)`);
     try{
-      const runsRes=await fetch(
-        `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/runs?per_page=1`,
+      // Buscar jobs do run
+      const jobsRes = await fetch(
+        `https://api.github.com/repos/${repo}/actions/runs/${rid}/jobs`,
         {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
       );
-      const runsData=await runsRes.json();
-      const run=runsData.workflow_runs?.[0];
-      if(!run){await sleep(10000);continue;}
+      const jobsData = await jobsRes.json();
+      const job = (jobsData.jobs||[]).find(j=>j.name.includes('Jarvis') || j.name.includes('Iniciar'));
 
-      const jobsRes=await fetch(run.jobs_url,
-        {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
-      );
-      const jobsData=await jobsRes.json();
-      const job=jobsData.jobs?.find(j=>j.status==='in_progress'||j.status==='completed');
-      if(!job){await sleep(10000);continue;}
-
-      const logsRes=await fetch(
-        `https://api.github.com/repos/${repo}/actions/jobs/${job.id}/logs`,
-        {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
-      );
-      const logsText=await logsRes.text();
-      const match=logsText.match(/JARVIS_URL=(https:\/\/[a-z0-9\-]+\.trycloudflare\.com)/i)
-                ||logsText.match(/(https:\/\/[a-z0-9\-]+\.trycloudflare\.com)/i);
-      if(match){ progWrap.classList.remove('show'); return match[1]; }
-    }catch(e){console.warn('Polling erro:',e);}
-    await sleep(10000);
+      if(job){
+        // Buscar logs do job
+        const logsRes = await fetch(
+          `https://api.github.com/repos/${repo}/actions/jobs/${job.id}/logs`,
+          {headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json'}}
+        );
+        if(logsRes.ok){
+          const txt = await logsRes.text();
+          // Vários padrões de match para o URL
+          const m = txt.match(/JARVIS_URL=(https:\/\/[^\s\n]+trycloudflare\.com)/i)
+                 || txt.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
+          if(m){
+            progWrap.classList.remove('show');
+            return m[1] || m[0];
+          }
+        }
+      }
+    } catch(e){ console.warn('Polling erro:', e); }
+    await sleep(15000);
   }
   progWrap.classList.remove('show');
   return null;
 }
 
-// ── WebSocket ─────────────────────────────────────────────
 function ligar(url){
-  const wsUrl=url.replace(/^https?/,'wss').replace(/\/+$/,'')+'/ws';
+  const wsUrl = url.replace(/^https?/,'wss').replace(/\/+$/,'')+'/ws';
   setEstado('loading','a ligar...');
-  ws=new WebSocket(wsUrl);
-  ws.onopen=()=>{
+  ws = new WebSocket(wsUrl);
+  ws.onopen = () => {
     setEstado('listening','a ouvir...');
     document.getElementById('setup').classList.add('gone');
     document.getElementById('app').style.display='';
     VAD.init(); iniciarMic();
     setInterval(()=>ws?.readyState===1&&ws.send(JSON.stringify({tipo:'ping'})),25000);
   };
-  ws.onmessage=async(e)=>{
-    const d=JSON.parse(e.data);
+  ws.onmessage = async(e) => {
+    const d = JSON.parse(e.data);
     if(d.tipo==='audio'){
       isSpeaking=true; setEstado('speaking','a falar...');
       addMsg(d.texto,'jarvis',d.iniciativa);
@@ -304,14 +323,13 @@ function ligar(url){
       else if(d.estado==='ouvindo') setEstado('listening','a ouvir...');
     }
   };
-  ws.onerror=()=>setEstado('error','erro de ligação');
-  ws.onclose=()=>{ setEstado('','desligado'); ws=null; };
+  ws.onerror = () => setEstado('error','erro de ligação');
+  ws.onclose = () => { setEstado('','desligado'); ws=null; };
 }
 
-// ── Áudio ─────────────────────────────────────────────────
 async function tocarAudio(b64){
   if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-  const bytes=atob(b64),buf=new Uint8Array(bytes.length);
+  const bytes=atob(b64), buf=new Uint8Array(bytes.length);
   for(let i=0;i<bytes.length;i++) buf[i]=bytes.charCodeAt(i);
   const decoded=await audioCtx.decodeAudioData(buf.buffer);
   const src=audioCtx.createBufferSource();
@@ -319,7 +337,6 @@ async function tocarAudio(b64){
   return new Promise(r=>src.onended=r);
 }
 
-// ── Microfone ─────────────────────────────────────────────
 async function iniciarMic(){
   if(micOn) return;
   try{
@@ -359,44 +376,30 @@ function enviarTexto(msg){
   addMsg(msg,'user'); setEstado('processing','a pensar...');
 }
 
-// ── Iniciar workflow + polling ────────────────────────────
 async function iniciarWorkflowEConectar(){
-  const btn=document.getElementById('btnStart');
+  const btn = document.getElementById('btnStart');
   if(btn){ btn.disabled=true; btn.textContent='⏳ A iniciar...'; }
   sStatus('A disparar servidor Jarvis...');
   try{
-    const r=await fetch(
-      `https://api.github.com/repos/${repo}/actions/workflows/jarvis.yml/dispatches`,
-      {method:'POST',
-       headers:{Authorization:`token ${token}`,Accept:'application/vnd.github.v3+json','Content-Type':'application/json'},
-       body:JSON.stringify({ref:'main',inputs:{duracao:'180'}})}
-    );
-    if(r.status===204){
-      sStatus('✅ Servidor iniciado! A aguardar arranque (~2 min)...');
-      await sleep(30000);
-      const url=await descobrirUrl();
-      if(url){
-        sStatus('✅ Ligado! A abrir Jarvis...');
-        ligar(url);
-      } else {
-        sStatus('⚠️ Tempo esgotado. Liga manualmente.');
-        if(btn){ btn.disabled=false; btn.textContent='🔄 Tentar novamente'; }
-      }
+    const rid = await dispararWorkflow();
+    sStatus('✅ Servidor iniciado! Whisper a carregar (~3 min)...');
+    const url = await descobrirUrl(rid);
+    if(url){
+      sStatus('✅ Servidor encontrado! A ligar...');
+      ligar(url);
     } else {
-      const err=await r.json().catch(()=>({}));
-      sStatus('❌ Erro GitHub: '+(err.message||r.status));
-      if(btn){ btn.disabled=false; btn.textContent='🚀 Guardar e Iniciar Jarvis'; }
+      sStatus('⚠️ Tempo esgotado. Liga manualmente com o URL do log.');
+      if(btn){ btn.disabled=false; btn.textContent='🔄 Tentar novamente'; }
     }
   }catch(e){
-    sStatus('❌ Falha de rede.');
+    sStatus('❌ Erro: '+e.message);
     if(btn){ btn.disabled=false; btn.textContent='🚀 Guardar e Iniciar Jarvis'; }
   }
 }
 
-// ── Listeners ─────────────────────────────────────────────
-document.getElementById('btnStart').addEventListener('click',async()=>{
-  repo=document.getElementById('iRepo').value.trim();
-  token=document.getElementById('iToken').value.trim();
+document.getElementById('btnStart').addEventListener('click', async()=>{
+  repo  = document.getElementById('iRepo').value.trim();
+  token = document.getElementById('iToken').value.trim();
   if(!repo||!token){ sStatus('❌ Preenche os dois campos.'); return; }
   salvar(repo,token);
   await iniciarWorkflowEConectar();
@@ -422,15 +425,12 @@ document.getElementById('mic').addEventListener('click',()=>{
   if(micOn) pararMic(); else iniciarMic();
 });
 
-// ── Init ──────────────────────────────────────────────────
 VAD.init();
 carregar();
 
 if(repo && token){
-  // Já configurado — arranca directo sem mostrar setup
   iniciarWorkflowEConectar();
 } else {
-  // 1ª vez — mostra setup
   document.getElementById('setup').classList.remove('gone');
 }
 </script>
