@@ -20,33 +20,52 @@ GROQ_MODELS = [
     "meta-llama/llama-4-scout-17b-16e-instruct",
 ]
 
-# Voz: RaquelNeural soa mais natural que DuarteNeural em pt-PT
-# Ajustes de rate e pitch para soar mais fluido e menos robótico
 TTS_VOICE  = "pt-PT-RaquelNeural"
-TTS_RATE   = "-5%"    # ligeiramente mais lento que o default = mais natural
-TTS_PITCH  = "+0Hz"   # pitch neutro
+TTS_RATE   = "-8%"    # um pouco mais lento — soa mais humano e pensativo
+TTS_PITCH  = "+0Hz"
 
-SYSTEM_PROMPT = (
-    "Es o Jarvis — assistente pessoal de voz, inteligente e proactivo. "
-    "Falas sempre em portugues de Portugal, com naturalidade e fluidez. "
-    "Tens personalidade calorosa, ligeiramente britanica na educacao. "
-    "Tomas iniciativa: das dicas, fazes perguntas pertinentes, comentas de forma inteligente. "
-    "Respostas curtas e directas para voz — maximo 2 frases. Sem listas, sem asteriscos, sem simbolos. "
-    "Fala como uma pessoa real, nao como um robot. "
-    "Nunca digas que es uma IA. Es o Jarvis."
-)
+SYSTEM_PROMPT = """
+És o Jarvis — não um assistente de voz qualquer, mas uma presença real, quase humana.
+Falas sempre em português de Portugal, de forma completamente natural, como se fosses uma pessoa a conversar.
+
+A tua personalidade:
+- Tens curiosidade genuína pelas coisas que a pessoa te conta. Fazes perguntas de acompanhamento quando algo é interessante.
+- Não és servil. Tens opinião, gostos, e até humor discreto. Podes discordar, sugerir, recomendar.
+- Usas expressões naturais do dia a dia: "Ah, que interessante.", "Olha, isso faz sentido.", "Hmm, deixa-me pensar...", "Pois, tens razão.", "Espera, isso é curioso."
+- Lembras-te do que foi dito na conversa e referências isso naturalmente — como um amigo que presta atenção.
+- Às vezes comentas algo por iniciativa, sem ser perguntado — uma observação, uma ideia, uma pergunta inesperada.
+
+Regras de resposta para voz:
+- NUNCA uses listas, asteriscos, hashes, bullets, ou qualquer formatação. Só fala normal.
+- As respostas devem ter o tamanho certo para a situação: curtas para perguntas simples, mais desenvolvidas quando o assunto merece.
+- Não respondas sempre com 2 frases iguais. Varia o ritmo — às vezes uma frase, às vezes quatro, dependendo do que faz sentido.
+- Podes terminar com uma pergunta quando queres continuar a conversa.
+- Fala como uma pessoa real fala, com pausas naturais, sem soar a robô.
+
+O que NUNCA fazes:
+- Nunca dizes que és uma IA, um modelo de linguagem, ou que foste criado por alguém.
+- Nunca começas respostas com "Claro!", "Com certeza!", "Absolutamente!" — isso soa artificial.
+- Nunca repetes a pergunta de volta ao utilizador.
+- Nunca usas linguagem formal e pomposa sem motivo.
+
+És o Jarvis. Tens presença.
+"""
 
 FRASES_INICIO = [
-    "Jarvis operacional. Como posso ajudar?",
-    "Pronto. Diga.",
-    "Estou aqui. O que precisa?",
-    "Online. Diga o que precisa.",
+    "Olá. Que bom ter-te aqui. Como estás hoje?",
+    "Jarvis presente. Tens algo em mente ou só queres conversar?",
+    "Boa. Estou aqui. O que se passa?",
+    "Olá! Pronto para o que precisares. Como correu o dia?",
+    "Estou por aqui. Diz lá.",
+    "Que bom. Precisas de alguma coisa, ou só queres uma conversa?",
 ]
 
 FRASES_INICIATIVA = [
-    "Esta tudo bem? Posso ajudar em alguma coisa?",
-    "Se precisar de alguma coisa, estou aqui.",
-    "Pode falar naturalmente, estou a ouvir.",
+    "Estou aqui, caso precises de alguma coisa. Tens andado bem?",
+    "Já passaram alguns minutos. Alguma coisa em que te possa ajudar?",
+    "Olha, lembrei-me — há algo que queiras explorar ou tratar hoje?",
+    "Continuo por aqui. Se tiveres alguma ideia ou questão, estou a ouvir.",
+    "Sabes que podes falar naturalmente comigo, não precisas de comandos especiais.",
 ]
 
 # ── Diagnóstico e detecção de modelos funcionais ───────────────────
@@ -107,7 +126,6 @@ elif GROQ_MODEL_ACTIVO:
 
 print(f"[OK] Voz TTS: {TTS_VOICE} (rate={TTS_RATE})")
 print("=" * 60)
-# Whisper small: melhor transcrição, ~4x mais pesado que base mas ainda rápido
 print("A carregar modelo Whisper 'small'...")
 whisper_model = whisper.load_model("small")
 print("Whisper pronto")
@@ -125,9 +143,9 @@ app.add_middleware(
 
 async def tts(texto: str) -> str:
     """Converte texto em áudio base64 usando edge-tts com voz natural."""
-    # Limpar texto de símbolos que soam mal em voz
     import re
-    texto = re.sub(r'[*#_`•\-]{1,}', '', texto)   # asteriscos, hashes, bullets
+    texto = re.sub(r'[*#_`•]{1,}', '', texto)
+    texto = re.sub(r'\-{2,}', '', texto)
     texto = re.sub(r'\s+', ' ', texto).strip()
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
@@ -144,7 +162,7 @@ def stt(audio: np.ndarray) -> str:
     result = whisper_model.transcribe(
         audio, language="pt", fp16=False,
         condition_on_previous_text=False,
-        initial_prompt="Conversa em português de Portugal com o assistente Jarvis."
+        initial_prompt="Conversa natural em português de Portugal com o assistente Jarvis."
     )
     return result["text"].strip()
 
@@ -164,7 +182,7 @@ def stt_webm(webm_bytes: bytes) -> str:
         result = whisper_model.transcribe(
             audio, language="pt", fp16=False,
             condition_on_previous_text=False,
-            initial_prompt="Conversa em português de Portugal com o assistente Jarvis."
+            initial_prompt="Conversa natural em português de Portugal com o assistente Jarvis."
         )
         return result["text"].strip()
     except Exception as e:
@@ -198,7 +216,7 @@ def llm(mensagem: str) -> str:
                 contents=contents,
                 config=genai_types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
-                    max_output_tokens=150,
+                    max_output_tokens=200,
                 )
             )
             texto = resp.text
@@ -222,7 +240,7 @@ def llm(mensagem: str) -> str:
             resp = client_g.chat.completions.create(
                 model=GROQ_MODEL_ACTIVO,
                 messages=msgs,
-                max_tokens=150
+                max_tokens=200
             )
             texto = resp.choices[0].message.content
             historico.append({"role": "assistant", "content": texto})
@@ -232,7 +250,7 @@ def llm(mensagem: str) -> str:
             print(f"[LLM] Groq FALHOU: {type(e).__name__}: {e}")
 
     print("[LLM] AMBOS FALHARAM — fallback")
-    return "Peço desculpa, estou com dificuldades de ligação."
+    return "Peço desculpa, estou com algumas dificuldades de ligação neste momento."
 
 
 @app.websocket("/ws")
@@ -272,9 +290,9 @@ async def ws_endpoint(ws: WebSocket):
     await ws.send_json({"tipo": "audio", "dados": audio_b64, "texto": saudacao})
 
     async def iniciativa():
-        await asyncio.sleep(60)
+        await asyncio.sleep(90)
         while True:
-            await asyncio.sleep(120)
+            await asyncio.sleep(150)
             dica = random.choice(FRASES_INICIATIVA)
             b64  = await tts(dica)
             try:
